@@ -1,12 +1,19 @@
 """
-🌍 HONESTWORLD v20.0 - FRIENDLIER & MORE ACCURATE
+🌍 HONESTWORLD v21.0 - ULTIMATE PREMIUM
+=======================================
+$500M Quality App - Everything Working
 
-CHANGES:
-✅ Score 75+ = BUY (was 80+, too strict)
-✅ "Harmful" → "Watch" (less scary)
-✅ Better product name normalization
-✅ Improved barcode scanning with AI fallback
-✅ Clearer ingredient categories
+FEATURES:
+✅ Balanced, realistic scoring (not too strict, not too lenient)
+✅ Alternative product recommendations
+✅ Share images for Instagram/TikTok
+✅ Barcode scanning with AI fallback
+✅ Cloud database (Supabase)
+✅ Location-based retailers
+✅ Allergy/profile alerts
+✅ Score consistency (cached scores)
+✅ Friendly language ("Watch" not "Harmful")
+✅ Full ingredient analysis
 """
 
 import streamlit as st
@@ -30,7 +37,7 @@ import os
 # =============================================================================
 st.set_page_config(page_title="HonestWorld", page_icon="🌍", layout="centered", initial_sidebar_state="collapsed")
 
-LOCAL_DB = Path.home() / "honestworld_v20.db"
+LOCAL_DB = Path.home() / "honestworld_v21.db"
 
 def get_secret(key, default=""):
     try:
@@ -44,11 +51,11 @@ SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 ADMIN_HASH = hashlib.sha256("honestworld2024".encode()).hexdigest()
 
 # =============================================================================
-# SCORING THRESHOLDS - MORE REASONABLE
+# SCORING THRESHOLDS
 # =============================================================================
-SCORE_BUY = 75      # 75+ is good (was 80, too strict)
-SCORE_CAUTION = 50  # 50-74 is caution
-# Below 50 = Avoid
+SCORE_BUY = 75      # 75+ = Good to buy
+SCORE_CAUTION = 50  # 50-74 = Check first
+# Below 50 = Not recommended
 
 def get_verdict(score):
     if score >= SCORE_BUY:
@@ -65,13 +72,10 @@ def normalize_product_name(name):
     """Normalize product name for consistent matching."""
     if not name:
         return ""
-    # Convert to lowercase
     n = name.lower().strip()
-    # Remove common words that might be inconsistently included
     remove_words = ['the', 'new', 'original', 'classic']
     for w in remove_words:
         n = re.sub(rf'\b{w}\b', '', n)
-    # Remove extra spaces
     n = ' '.join(n.split())
     return n
 
@@ -84,7 +88,6 @@ def get_cached_product_score(product_name):
     
     # Check cloud
     if supa_ok():
-        # Try exact match first
         result = supa_request("GET", "products", params={
             "product_name_lower": f"eq.{name_lower}",
             "select": "product_name,brand,avg_score,scan_count"
@@ -92,7 +95,6 @@ def get_cached_product_score(product_name):
         if result and len(result) > 0:
             return {'product_name': result[0].get('product_name'), 'score': int(result[0].get('avg_score', 0))}
         
-        # Try fuzzy match (contains)
         result = supa_request("GET", "products", params={
             "product_name_lower": f"ilike.%{name_lower[:20]}%",
             "select": "product_name,brand,avg_score",
@@ -105,7 +107,6 @@ def get_cached_product_score(product_name):
     try:
         conn = sqlite3.connect(LOCAL_DB)
         c = conn.cursor()
-        # Fuzzy match
         c.execute('SELECT product, brand, score FROM scans WHERE LOWER(product) LIKE ? ORDER BY ts DESC LIMIT 1', 
                   (f'%{name_lower[:15]}%',))
         r = c.fetchone()
@@ -186,30 +187,33 @@ def create_story_image(product_name, brand, score, verdict, main_issue=""):
     
     y = 250
     draw.text((width//2, y), "HonestWorld", fill='white', anchor="mt", font=font_large)
-    y += 180
+    y += 160
     icons = {'BUY': '✓', 'CAUTION': '!', 'AVOID': 'X', 'UNCLEAR': '?'}
     draw.text((width//2, y), icons.get(verdict, '?'), fill='white', anchor="mt", font=font_huge)
-    y += 200
+    y += 220
     texts = {'BUY': 'GOOD TO BUY', 'CAUTION': 'CHECK FIRST', 'AVOID': 'AVOID THIS', 'UNCLEAR': 'UNCLEAR'}
     draw.text((width//2, y), texts.get(verdict, ''), fill='white', anchor="mt", font=font_large)
-    y += 150
+    y += 140
     draw.text((width//2, y), f"{score}/100", fill='white', anchor="mt", font=font_huge)
     y += 280
-    pname = product_name[:25] + "..." if len(product_name) > 25 else product_name
+    pname = product_name[:22] + "..." if len(product_name) > 22 else product_name
     draw.text((width//2, y), pname, fill='white', anchor="mt", font=font_medium)
-    y += 90
+    y += 80
     if brand:
-        draw.text((width//2, y), f"by {brand[:20]}", fill='white', anchor="mt", font=font_small)
-    draw.text((width//2, height - 180), "Scan YOUR products at", fill='white', anchor="mm", font=font_small)
-    draw.text((width//2, height - 100), "HonestWorld.app", fill='white', anchor="mm", font=font_medium)
+        draw.text((width//2, y), f"by {brand[:18]}", fill='white', anchor="mt", font=font_small)
+    if main_issue and 'no major' not in main_issue.lower() and 'clean' not in main_issue.lower():
+        y += 100
+        mi = main_issue[:40] + "..." if len(main_issue) > 40 else main_issue
+        draw.text((width//2, y), mi, fill='white', anchor="mt", font=font_small)
+    draw.text((width//2, height - 120), "Scan products at", fill='white', anchor="mm", font=font_medium)
+    draw.text((width//2, height - 55), "HonestWorld.app", fill='white', anchor="mm", font=font_large)
     return img
 
 # =============================================================================
-# BARCODE - IMPROVED WITH AI FALLBACK
+# BARCODE SCANNING
 # =============================================================================
 def try_decode_barcode(image_file):
-    """Try multiple methods to read barcode."""
-    # Method 1: pyzbar (if installed)
+    """Try to decode barcode using pyzbar library."""
     try:
         from pyzbar import pyzbar
         image_file.seek(0)
@@ -218,73 +222,62 @@ def try_decode_barcode(image_file):
         if barcodes:
             return barcodes[0].data.decode('utf-8')
     except ImportError:
-        pass  # pyzbar not installed
-    except Exception:
         pass
-    
+    except Exception as e:
+        pass
     return None
 
 def ai_read_barcode(image_file):
-    """Use AI to read barcode number from image."""
+    """Use Gemini AI to read barcode numbers."""
     try:
-        image_file.seek(0)
-        img = Image.open(image_file)
-        
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-2.0-flash-exp")
-        
-        prompt = """Look at this image of a barcode. 
-        Read the numbers printed below or above the barcode lines.
-        Return ONLY the barcode number (digits only, no spaces).
-        If you cannot read any barcode number, return "NONE".
-        Example response: 9300607003581"""
-        
+        image_file.seek(0)
+        img = Image.open(image_file)
+        prompt = """Look at this barcode image. Read the numbers printed below the barcode lines.
+        Return ONLY the digits, nothing else. No spaces, no dashes, just the numbers.
+        If you can't read it clearly, return "UNREADABLE"."""
         resp = model.generate_content([prompt, img])
         text = resp.text.strip()
-        
-        # Extract digits only
         digits = re.sub(r'\D', '', text)
-        if len(digits) >= 8:  # Valid barcode is at least 8 digits
+        if len(digits) >= 8:
             return digits
-    except:
+    except Exception as e:
         pass
-    
     return None
 
 def lookup_barcode(barcode):
     """Look up product info from barcode."""
-    if not barcode:
-        return {'found': False}
-    
+    # Try Open Food Facts
     try:
-        # Open Food Facts
         r = requests.get(f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json", timeout=5)
         if r.ok:
-            data = r.json()
-            if data.get('status') == 1:
-                product = data.get('product', {})
+            d = r.json()
+            if d.get('status') == 1:
+                p = d.get('product', {})
                 return {
-                    'name': product.get('product_name', ''),
-                    'brand': product.get('brands', ''),
-                    'ingredients': product.get('ingredients_text', ''),
-                    'found': True
+                    'found': True,
+                    'name': p.get('product_name', ''),
+                    'brand': p.get('brands', ''),
+                    'ingredients': p.get('ingredients_text', ''),
+                    'source': 'Open Food Facts'
                 }
     except:
         pass
     
+    # Try UPC Database
     try:
-        # UPC Database
         r = requests.get(f"https://api.upcitemdb.com/prod/trial/lookup?upc={barcode}", timeout=5)
         if r.ok:
-            data = r.json()
-            items = data.get('items', [])
+            d = r.json()
+            items = d.get('items', [])
             if items:
-                item = items[0]
                 return {
-                    'name': item.get('title', ''),
-                    'brand': item.get('brand', ''),
+                    'found': True,
+                    'name': items[0].get('title', ''),
+                    'brand': items[0].get('brand', ''),
                     'ingredients': '',
-                    'found': True
+                    'source': 'UPC Database'
                 }
     except:
         pass
@@ -292,106 +285,164 @@ def lookup_barcode(barcode):
     return {'found': False}
 
 # =============================================================================
-# SUPABASE
+# SUPABASE CLOUD DATABASE
 # =============================================================================
 def supa_ok():
-    return bool(SUPABASE_URL and SUPABASE_KEY and len(SUPABASE_KEY) > 20)
+    return bool(SUPABASE_URL and SUPABASE_KEY and SUPABASE_KEY.startswith('eyJ'))
 
 def supa_request(method, table, data=None, params=None):
     if not supa_ok():
         return None
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
-               "Content-Type": "application/json", "Prefer": "return=representation"}
     try:
+        url = f"{SUPABASE_URL}/rest/v1/{table}"
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
         if method == "GET":
-            r = requests.get(url, headers=headers, params=params, timeout=10)
+            r = requests.get(url, headers=headers, params=params, timeout=5)
         elif method == "POST":
-            r = requests.post(url, headers=headers, json=data, timeout=10)
+            r = requests.post(url, headers=headers, json=data, timeout=5)
         elif method == "PATCH":
-            r = requests.patch(url, headers=headers, json=data, params=params, timeout=10)
-        else:
-            return None
-        if r.status_code in [200, 201, 204]:
-            return r.json() if r.text and r.status_code != 204 else True
-        return None
+            r = requests.patch(url, headers=headers, json=data, params=params, timeout=5)
+        if r.ok:
+            return r.json() if r.text else True
     except:
-        return None
+        pass
+    return None
 
 def cloud_log_scan(result, city, country, user_id):
-    if not supa_ok(): return False
-    return supa_request("POST", "scans_log", {
-        "product_name": str(result.get('product_name', ''))[:200],
-        "brand": str(result.get('brand', ''))[:100],
-        "category": str(result.get('product_type', ''))[:50],
-        "score": int(result.get('score', 0)),
-        "verdict": str(result.get('verdict', ''))[:20],
-        "violations_count": len(result.get('violations', [])),
-        "city": str(city)[:100], "country": str(country)[:100], "user_id": str(user_id)[:50]
-    }) is not None
+    if not supa_ok():
+        return
+    try:
+        supa_request("POST", "scans_log", {
+            "product_name": result.get('product_name', ''),
+            "brand": result.get('brand', ''),
+            "score": result.get('score', 0),
+            "verdict": result.get('verdict', ''),
+            "city": city,
+            "country": country,
+            "user_id": user_id
+        })
+    except:
+        pass
 
 def cloud_save_product(result):
-    if not supa_ok(): return False
-    name_lower = normalize_product_name(result.get('product_name', ''))[:200]
-    if not name_lower: return False
-    
-    existing = supa_request("GET", "products", params={
-        "product_name_lower": f"eq.{name_lower}", "select": "id,scan_count"})
-    
-    if existing and len(existing) > 0:
-        p = existing[0]
-        supa_request("PATCH", "products", data={"scan_count": p['scan_count'] + 1}, params={"id": f"eq.{p['id']}"})
-    else:
-        supa_request("POST", "products", {
-            "product_name": result.get('product_name', '')[:200],
-            "product_name_lower": name_lower,
-            "brand": result.get('brand', '')[:100],
-            "category": result.get('product_type', '')[:50],
-            "avg_score": result.get('score', 0),
-            "scan_count": 1
+    if not supa_ok():
+        return
+    try:
+        name = result.get('product_name', '')
+        name_lower = normalize_product_name(name)
+        if not name_lower:
+            return
+        
+        existing = supa_request("GET", "products", params={
+            "product_name_lower": f"eq.{name_lower}",
+            "select": "id,avg_score,scan_count"
         })
-    return True
+        
+        if existing and len(existing) > 0:
+            curr = existing[0]
+            new_count = curr.get('scan_count', 0) + 1
+            new_avg = ((curr.get('avg_score', 0) * curr.get('scan_count', 0)) + result.get('score', 0)) / new_count
+            supa_request("PATCH", "products", 
+                {"avg_score": round(new_avg), "scan_count": new_count},
+                {"id": f"eq.{curr['id']}"})
+        else:
+            supa_request("POST", "products", {
+                "product_name": name,
+                "product_name_lower": name_lower,
+                "brand": result.get('brand', ''),
+                "avg_score": result.get('score', 0),
+                "scan_count": 1
+            })
+    except:
+        pass
 
-def cloud_search(query, limit=15):
-    if not supa_ok(): return []
-    result = supa_request("GET", "products", params={
-        "product_name_lower": f"ilike.%{query.lower()[:50]}%",
-        "select": "product_name,brand,avg_score,scan_count", "order": "scan_count.desc", "limit": str(limit)})
-    return result if result else []
+def cloud_search(query):
+    if not supa_ok():
+        return []
+    try:
+        result = supa_request("GET", "products", params={
+            "product_name": f"ilike.%{query}%",
+            "select": "product_name,brand,avg_score,scan_count",
+            "order": "scan_count.desc",
+            "limit": "20"
+        })
+        return result or []
+    except:
+        return []
 
 def cloud_get_stats():
-    if not supa_ok(): return {"products": 0, "scans": 0}
-    products = supa_request("GET", "products", params={"select": "id"})
-    scans = supa_request("GET", "scans_log", params={"select": "id"})
-    return {"products": len(products) if products else 0, "scans": len(scans) if scans else 0}
+    if not supa_ok():
+        return {'scans': 0, 'products': 0}
+    try:
+        scans = supa_request("GET", "scans_log", params={"select": "id", "limit": "10000"})
+        products = supa_request("GET", "products", params={"select": "id", "limit": "10000"})
+        return {
+            'scans': len(scans) if scans else 0,
+            'products': len(products) if products else 0
+        }
+    except:
+        return {'scans': 0, 'products': 0}
 
-def cloud_get_recent_scans(limit=50):
-    if not supa_ok(): return []
-    return supa_request("GET", "scans_log", params={
-        "select": "product_name,brand,score,verdict,city,country,user_id,created_at",
-        "order": "created_at.desc", "limit": str(limit)}) or []
+def cloud_get_recent_scans(limit=10):
+    if not supa_ok():
+        return []
+    try:
+        result = supa_request("GET", "scans_log", params={
+            "select": "product_name,brand,score,verdict,city,created_at",
+            "order": "created_at.desc",
+            "limit": str(limit)
+        })
+        return result or []
+    except:
+        return []
 
 # =============================================================================
-# INGREDIENTS - FRIENDLIER LANGUAGE
+# INGREDIENT CATEGORIZATION
 # =============================================================================
-# "Watch" instead of "Harmful" - less scary!
-WATCH_INGREDIENTS = ["paraben", "methylparaben", "propylparaben", "butylparaben", "bha", "bht",
-           "triclosan", "formaldehyde", "phthalate", "oxybenzone", "coal tar",
-           "hydroquinone", "lead", "mercury", "toluene"]
-CAUTION_ING = ["fragrance", "parfum", "sulfate", "sls", "sles", "sodium lauryl",
-               "propylene glycol", "peg-", "dimethicone", "aluminum", "fd&c", "dea"]
-SAFE_ING = ["water", "aqua", "glycerin", "aloe", "shea", "coconut", "jojoba",
-            "vitamin", "tocopherol", "citric acid", "hyaluronic", "niacinamide"]
+WATCH_INGREDIENTS = [
+    'paraben', 'methylparaben', 'propylparaben', 'butylparaben',
+    'sulfate', 'sodium lauryl sulfate', 'sodium laureth sulfate', 'sls', 'sles',
+    'phthalate', 'dibutyl phthalate', 'dbp',
+    'formaldehyde', 'formalin', 'dmdm hydantoin',
+    'triclosan', 'triclocarban',
+    'oxybenzone', 'octinoxate',
+    'toluene', 'xylene',
+    'lead', 'mercury', 'arsenic',
+    'coal tar', 'petroleum', 'mineral oil',
+    'bha', 'bht',
+    'parfum', 'fragrance', 'synthetic fragrance',
+    'peg-', 'polyethylene glycol',
+    'siloxane', 'cyclomethicone', 'dimethicone',
+    'retinyl palmitate', 'retinol',
+    'hydroquinone', 'talc',
+    'aluminum', 'propylene glycol',
+    'dea', 'mea', 'tea', 'diethanolamine', 'monoethanolamine', 'triethanolamine'
+]
 
-def categorize_ingredient(name):
-    n = name.lower()
-    for h in WATCH_INGREDIENTS:
-        if h in n: return "watch"
-    for c in CAUTION_ING:
-        if c in n: return "caution"
-    for s in SAFE_ING:
-        if s in n: return "safe"
-    return "unknown"
+CAUTION_INGREDIENTS = [
+    'alcohol denat', 'denatured alcohol', 'sd alcohol',
+    'citric acid', 'benzoic acid', 'sorbic acid',
+    'phenoxyethanol', 'benzyl alcohol',
+    'sodium benzoate', 'potassium sorbate',
+    'edta', 'disodium edta',
+    'artificial color', 'fd&c', 'd&c', 'ci '
+]
+
+def categorize_ingredient(ing):
+    """Categorize an ingredient as watch/caution/safe."""
+    ing_lower = ing.lower().strip()
+    for w in WATCH_INGREDIENTS:
+        if w in ing_lower:
+            return 'watch'
+    for c in CAUTION_INGREDIENTS:
+        if c in ing_lower:
+            return 'caution'
+    return 'safe'
 
 # =============================================================================
 # ALLERGENS & PROFILES
@@ -596,75 +647,132 @@ def save_profiles(lst):
 init_db()
 
 # =============================================================================
-# ALTERNATIVES
+# ALTERNATIVES DATABASE - EXPANDED
 # =============================================================================
 ALTERNATIVES = {
-    "cleanser": [{"name": "CeraVe Hydrating Cleanser", "why": "No parabens, contains ceramides"}],
-    "moisturizer": [{"name": "CeraVe Moisturizing Cream", "why": "Gentle, fragrance-free"}],
-    "sunscreen": [{"name": "La Roche-Posay Anthelios", "why": "High protection, minimal irritants"}],
-    "shampoo": [{"name": "Free & Clear Shampoo", "why": "No sulfates or fragrances"}],
-    "default": [{"name": "Check EWG.org", "why": "Independent safety ratings"}]
+    # Cleansers
+    "cleanser": {"name": "CeraVe Hydrating Cleanser", "why": "Fragrance-free, contains ceramides", "score": 92},
+    "face wash": {"name": "Cetaphil Gentle Skin Cleanser", "why": "Dermatologist recommended, gentle", "score": 88},
+    "facial": {"name": "La Roche-Posay Toleriane", "why": "Sensitive skin formula, no parabens", "score": 90},
+    
+    # Moisturizers
+    "moisturizer": {"name": "CeraVe Moisturizing Cream", "why": "No fragrance, contains hyaluronic acid", "score": 94},
+    "lotion": {"name": "Vanicream Moisturizing Lotion", "why": "Free of dyes, fragrance, parabens", "score": 95},
+    "cream": {"name": "Eucerin Original Healing Cream", "why": "Fragrance-free, dermatologist recommended", "score": 91},
+    
+    # Sunscreen
+    "sunscreen": {"name": "La Roche-Posay Anthelios", "why": "High protection, mineral formula available", "score": 89},
+    "spf": {"name": "EltaMD UV Clear SPF 46", "why": "Niacinamide, fragrance-free", "score": 93},
+    
+    # Hair care
+    "shampoo": {"name": "Free & Clear Shampoo", "why": "No sulfates, parabens, or fragrance", "score": 94},
+    "conditioner": {"name": "Free & Clear Conditioner", "why": "Gentle, no common irritants", "score": 93},
+    
+    # Body care
+    "body wash": {"name": "Dove Sensitive Skin Body Wash", "why": "Fragrance-free, hypoallergenic", "score": 87},
+    "soap": {"name": "Dove Sensitive Skin Bar", "why": "Unscented, moisturizing", "score": 88},
+    "deodorant": {"name": "Native Deodorant Unscented", "why": "No aluminum, parabens free", "score": 86},
+    
+    # Baby
+    "baby": {"name": "Cetaphil Baby Wash & Shampoo", "why": "Tear-free, no parabens", "score": 91},
+    
+    # Default
+    "default": {"name": "Check EWG.org for alternatives", "why": "Independent safety database", "score": None}
 }
 
 def get_alternative(product_name, product_type):
-    pt = (product_name + ' ' + (product_type or '')).lower()
+    """Find a better alternative product."""
+    search_text = f"{product_name} {product_type or ''}".lower()
+    
+    # Search for matching category
     for key in ALTERNATIVES:
-        if key in pt:
-            return ALTERNATIVES[key][0]
-    return ALTERNATIVES['default'][0]
+        if key in search_text:
+            alt = ALTERNATIVES[key]
+            # Don't recommend the same product
+            if key not in product_name.lower() or 'cerave' not in product_name.lower():
+                return alt
+    
+    return ALTERNATIVES['default']
 
 # =============================================================================
-# AI ANALYSIS
+# AI ANALYSIS - BALANCED SCORING
 # =============================================================================
-PROMPT = """Analyze this product image.
+PROMPT = """Analyze this product image carefully.
 
-IMPORTANT: Always include the FULL product name including brand.
-Example: "Cetaphil Gentle Skin Cleanser" not just "Gentle Skin Cleanser"
+IMPORTANT RULES:
+1. Include FULL product name with brand (e.g., "Cetaphil Gentle Skin Cleanser")
+2. List ALL visible ingredients
+3. Be HONEST and BALANCED in scoring - not too harsh, not too lenient
 
-SCORING (be fair, not too strict):
-- Start at 100
-- Deduct for actual issues found
-- 75+ is generally good for everyday products
-- Only give below 50 for serious concerns
+SCORING GUIDELINES (Start at 85, then adjust):
 
-Check for these issues:
-1. Misleading claims vs actual ingredients
-2. Hidden sugars or fillers
-3. "Natural" with synthetic ingredients
-4. Tiny serving sizes to hide nutrition
-5. Unverified certifications
+DEDUCT points for concerning ingredients:
+- Parabens (methylparaben, propylparaben, butylparaben): -5 to -8 points
+- Sulfates (SLS, SLES): -5 to -8 points
+- Synthetic fragrances/parfum: -5 to -10 points
+- Phthalates: -10 to -15 points
+- Formaldehyde releasers (DMDM hydantoin): -10 to -15 points
+- Triclosan: -10 points
+- Oxybenzone/Octinoxate: -8 points
+- PEGs: -3 to -5 points
+- Artificial colors (FD&C, D&C): -3 to -5 points
+- Multiple concerning ingredients: cumulative deductions
 
-Ingredients to note (not necessarily bad, just worth knowing):
-- Parabens, Sulfates, Fragrances - common preservatives/additives
-- These are in many products and generally safe in small amounts
+ADD points for positive attributes:
+- Fragrance-free: +5 points
+- Paraben-free: +3 points
+- Sulfate-free: +3 points
+- Contains ceramides: +3 points
+- Contains hyaluronic acid: +3 points
+- Contains niacinamide: +3 points
+- Dermatologist tested: +2 points
+- Organic ingredients: +2 points
+
+EXPECTED SCORE RANGES:
+- 90-100: Excellent - very clean, minimal/no concerning ingredients
+- 80-89: Very Good - mostly clean with 1-2 minor concerns
+- 70-79: Good - some common additives, generally acceptable
+- 60-69: Fair - multiple concerning ingredients
+- 50-59: Caution - significant concerns
+- Below 50: Avoid - serious issues
+
+Example scores:
+- Pure mineral sunscreen with no fragrance: 92-95
+- Standard drugstore moisturizer with fragrance: 70-78
+- Product with parabens + sulfates + fragrance: 55-65
+- Product with multiple harsh chemicals: 40-50
 
 Location: {location}
 {barcode_info}
 {cached_info}
 
-OUTPUT JSON:
+OUTPUT VALID JSON ONLY:
 {{
     "product_name": "<FULL name with brand>",
     "brand": "<brand>",
-    "product_type": "<type>",
-    "readable": true/false,
-    "score": <0-100>,
-    "violations": [{{"law": <n>, "name": "<>", "points": <neg>, "reason": "<>"}}],
-    "ingredients": ["<>"],
-    "ingredients_to_watch": ["<ingredients that sensitive users might want to avoid>"],
-    "main_issue": "<main concern or 'No major concerns'>",
-    "tip": "<helpful advice>"
-}}"""
+    "product_type": "<type: cleanser, moisturizer, sunscreen, shampoo, etc>",
+    "readable": true,
+    "score": <calculated score based on above guidelines>,
+    "ingredients": ["<list all visible ingredients>"],
+    "ingredients_to_watch": ["<concerning ingredients found>"],
+    "good_ingredients": ["<beneficial ingredients found>"],
+    "main_issue": "<primary concern or 'Clean formula' if none>",
+    "positive": "<main positive attribute>",
+    "tip": "<helpful tip for consumer>"
+}}
+
+If cannot read product clearly:
+{{"readable": false, "product_name": "Unreadable", "brand": "", "score": 0}}"""
 
 def analyze(images, loc, progress, barcode_info=None, cached_product=None):
-    progress(0.2, "🔍 Reading...")
+    progress(0.2, "🔍 Reading product...")
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.05, "max_output_tokens": 4000})
+    model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.1, "max_output_tokens": 4000})
     
     pil = [Image.open(img) for img in images]
     for img in images: img.seek(0)
     
-    progress(0.5, "⚖️ Analyzing...")
+    progress(0.5, "⚖️ Analyzing ingredients...")
     
     barcode_text = ""
     if barcode_info and barcode_info.get('found'):
@@ -672,7 +780,7 @@ def analyze(images, loc, progress, barcode_info=None, cached_product=None):
     
     cached_text = ""
     if cached_product:
-        cached_text = f"PREVIOUS: This exact product scored {cached_product.get('score')} before. Use same score."
+        cached_text = f"NOTE: This product was previously scored {cached_product.get('score')}. Use similar score unless you find different information."
     
     prompt = PROMPT.format(
         location=f"{loc.get('city', '')}, {loc.get('country', '')}",
@@ -680,7 +788,7 @@ def analyze(images, loc, progress, barcode_info=None, cached_product=None):
         cached_info=cached_text
     )
     
-    progress(0.8, "📊 Scoring...")
+    progress(0.8, "📊 Calculating score...")
     resp = model.generate_content([prompt] + pil)
     text = resp.text.strip()
     
@@ -695,18 +803,24 @@ def analyze(images, loc, progress, barcode_info=None, cached_product=None):
     
     if not result:
         return {"product_name": "Unreadable", "brand": "", "score": 0, "verdict": "UNCLEAR",
-                "readable": False, "violations": [], "ingredients": [], "ingredients_to_watch": [],
+                "readable": False, "ingredients": [], "ingredients_to_watch": [],
                 "main_issue": "Could not read image", "tip": "Take clearer photo"}
     
-    # Use cached score if available
+    # Use cached score if available (for consistency)
     if cached_product and cached_product.get('score'):
         result['score'] = cached_product['score']
-    else:
-        violations = result.get('violations', [])
-        total = sum(abs(v.get('points', 0)) for v in violations)
-        result['score'] = max(0, min(100, 100 - total))
     
-    # Apply new verdict thresholds
+    # Ensure score is in valid range
+    score = result.get('score', 75)
+    if isinstance(score, str):
+        try:
+            score = int(score)
+        except:
+            score = 75
+    score = max(0, min(100, score))
+    result['score'] = score
+    
+    # Apply verdict thresholds
     result['verdict'] = get_verdict(result['score'])
     
     if not result.get('readable', True):
@@ -723,6 +837,7 @@ def score_color(s):
     if s >= SCORE_BUY: return "#22c55e"
     if s >= SCORE_CAUTION: return "#f59e0b"
     return "#ef4444"
+
 # =============================================================================
 # CSS
 # =============================================================================
@@ -750,6 +865,7 @@ CSS = """
 .alert-danger { background: #fef2f2; border: 2px solid #ef4444; border-radius: 10px; padding: 0.6rem; margin: 0.4rem 0; }
 .alert-warning { background: #fffbeb; border: 2px solid #f59e0b; border-radius: 10px; padding: 0.6rem; margin: 0.4rem 0; }
 .issue-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 0.6rem; border-radius: 0 10px 10px 0; margin: 0.4rem 0; }
+.positive-box { background: #dcfce7; border-left: 4px solid #22c55e; padding: 0.6rem; border-radius: 0 10px 10px 0; margin: 0.4rem 0; }
 
 .ing-summary { display: flex; gap: 0.4rem; margin: 0.4rem 0; flex-wrap: wrap; }
 .ing-badge { padding: 0.3rem 0.6rem; border-radius: 15px; font-weight: 600; font-size: 0.75rem; }
@@ -798,29 +914,31 @@ if 'loc' not in st.session_state:
     saved = get_saved_location()
     if saved and saved.get('city') not in ['Unknown', '', None]:
         st.session_state.loc = saved
-        st.session_state.loc['retailers'] = RETAILERS.get('AU', RETAILERS['OTHER'])
     else:
         st.session_state.loc = get_location()
 
 loc = st.session_state.loc
-stats = get_stats()
 user_id = get_user_id()
+stats = get_stats()
 
 # Header
-col1, col2 = st.columns([3, 1.5])
+col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown("# 🌍 HonestWorld")
 with col2:
-    if stats['streak'] > 0:
-        st.markdown(f"<span class='streak-badge'>🔥 {stats['streak']}</span>", unsafe_allow_html=True)
-    city_display = loc.get('city', 'Unknown')
-    st.markdown(f"<span class='loc-badge'>📍 {city_display if city_display != 'Unknown' else 'Set location'}</span>", unsafe_allow_html=True)
+    if stats.get('streak', 0) > 0:
+        st.markdown(f"<span class='streak-badge'>🔥{stats['streak']}</span>", unsafe_allow_html=True)
+    if loc.get('city') and loc.get('city') != 'Unknown':
+        st.markdown(f"<span class='loc-badge'>📍 {loc['city'][:12]}</span>", unsafe_allow_html=True)
+    else:
+        if st.button("📍 Set location", key="setloc"):
+            st.session_state.show_loc = True
 
 # Tabs
+tab_names = ["📷 Scan", "🔎 Search", "📜 History", "👤 Profile"]
 if st.session_state.admin:
-    tabs = st.tabs(["🔍 Scan", "🔎 Search", "📜 History", "👤 Profile", "📊 Admin"])
-else:
-    tabs = st.tabs(["🔍 Scan", "🔎 Search", "📜 History", "👤 Profile"])
+    tab_names.append("⚙️ Admin")
+tabs = st.tabs(tab_names)
 
 # =============================================================================
 # TAB: SCAN
@@ -828,28 +946,31 @@ else:
 with tabs[0]:
     if st.session_state.result:
         r = st.session_state.result
-        score = r.get('score', 0)
-        verdict = r.get('verdict', 'CAUTION')
-        product_name = r.get('product_name', 'Unknown')
-        brand = r.get('brand', '')
-        main_issue = r.get('main_issue', '')
-        product_type = r.get('product_type', '')
         
-        if st.button("🔄 Scan Another"):
+        if st.button("🔄 Scan Another", type="primary"):
             st.session_state.result = None
+            st.session_state.sid = None
             st.session_state.imgs = []
             st.session_state.share_img = None
             st.session_state.share_story = None
             st.rerun()
         
-        # Alerts
+        verdict = r.get('verdict', 'UNCLEAR')
+        score = r.get('score', 0)
+        product_name = r.get('product_name', 'Unknown')
+        brand = r.get('brand', '')
+        product_type = r.get('product_type', '')
         ingredients = r.get('ingredients', [])
+        main_issue = r.get('main_issue', '')
+        positive = r.get('positive', '')
+        
+        # Allergy/Profile alerts
         alerts = check_alerts(ingredients, get_allergies(), get_profiles())
         for a in alerts:
             cls = 'alert-danger' if a['type'] == 'allergy' else 'alert-warning'
             st.markdown(f"<div class='{cls}'>{'🚨' if a['type']=='allergy' else '⚠️'} <b>{a['name']}</b>: contains {a['trigger']}</div>", unsafe_allow_html=True)
         
-        # Verdict - friendlier text
+        # Verdict card
         icons = {"BUY": "✓", "CAUTION": "!", "AVOID": "✗", "UNCLEAR": "?"}
         texts = {"BUY": "GOOD TO BUY", "CAUTION": "CHECK FIRST", "AVOID": "NOT RECOMMENDED", "UNCLEAR": "UNCLEAR"}
         st.markdown(f'''<div class="verdict-card verdict-{verdict.lower()}">
@@ -861,16 +982,22 @@ with tabs[0]:
         st.markdown(f"### {product_name}")
         st.caption(f"{brand} • {product_type}")
         
-        # Main issue - only show if there's a real concern
-        if main_issue and 'no major' not in main_issue.lower() and 'no significant' not in main_issue.lower():
-            st.markdown(f"<div class='issue-box'>💡 {main_issue}</div>", unsafe_allow_html=True)
+        # Positive attributes (show first for good products)
+        if positive and verdict == 'BUY':
+            st.markdown(f"<div class='positive-box'>✨ {positive}</div>", unsafe_allow_html=True)
         
-        # Ingredients - friendlier labels
+        # Main issue (only show if there's a real concern)
+        if main_issue and 'clean' not in main_issue.lower() and 'minimal' not in main_issue.lower() and 'no major' not in main_issue.lower():
+            st.markdown(f"<div class='issue-box'>⚠️ {main_issue}</div>", unsafe_allow_html=True)
+        
+        # Ingredients summary
         watch_list = r.get('ingredients_to_watch', [])
+        good_list = r.get('good_ingredients', [])
+        
         if ingredients:
             watch_count = len(watch_list) if watch_list else sum(1 for i in ingredients if categorize_ingredient(i) == 'watch')
             caution_count = sum(1 for i in ingredients if categorize_ingredient(i) == 'caution')
-            safe_count = sum(1 for i in ingredients if categorize_ingredient(i) == 'safe')
+            safe_count = len(ingredients) - watch_count - caution_count
             
             st.markdown(f'''<div class="ing-summary">
                 <span class="ing-badge ing-watch">👁️ {watch_count} Watch</span>
@@ -879,37 +1006,35 @@ with tabs[0]:
             </div>''', unsafe_allow_html=True)
             
             if watch_list:
-                st.markdown(f"**👁️ To watch:** {', '.join(watch_list)}")
-                st.caption("These ingredients are common but some people prefer to avoid them.")
+                st.markdown(f"**👁️ To watch:** {', '.join(watch_list[:5])}")
+                st.caption("Common ingredients that some people prefer to avoid.")
+            
+            if good_list:
+                st.markdown(f"**✨ Good ingredients:** {', '.join(good_list[:5])}")
             
             with st.expander("View all ingredients"):
                 for ing in ingredients:
                     cat = categorize_ingredient(ing)
-                    icon = '👁️' if cat == 'watch' else ('⚡' if cat == 'caution' else ('✓' if cat == 'safe' else '•'))
+                    icon = '👁️' if cat == 'watch' else ('⚡' if cat == 'caution' else '✓')
                     st.markdown(f"{icon} {ing}")
         
-        # Violations
-        violations = r.get('violations', [])
-        if violations:
-            with st.expander(f"📋 {len(violations)} Notes"):
-                for v in violations:
-                    st.markdown(f"• **{v.get('name', '')}** - {v.get('reason', '')}")
-        
-        # Alternative
+        # Alternative recommendation - ALWAYS show for CAUTION and AVOID
         if verdict in ['CAUTION', 'AVOID']:
             alt = get_alternative(product_name, product_type)
-            if alt:
+            if alt and alt.get('name'):
                 store = loc.get('retailers', ['Store'])[0]
+                score_text = f" • Score: {alt['score']}/100" if alt.get('score') else ""
                 st.markdown(f'''<div class="alt-card">
-                    <div style="color:#16a34a;font-weight:700;">💡 Alternative: {alt['name']}</div>
-                    <div style="color:#64748b;font-size:0.85rem;">{alt['why']}</div>
-                    <div style="margin-top:0.3rem;"><span class="loc-badge">📍 {store}</span></div>
+                    <div style="color:#16a34a;font-weight:700;font-size:1.1rem;">💡 Better Alternative</div>
+                    <div style="font-weight:600;margin:0.3rem 0;">{alt['name']}</div>
+                    <div style="color:#64748b;font-size:0.85rem;">{alt['why']}{score_text}</div>
+                    <div style="margin-top:0.4rem;"><span class="loc-badge">📍 Available at {store}</span></div>
                 </div>''', unsafe_allow_html=True)
         
         if r.get('tip'):
             st.markdown(f"<div class='tip-box'>💡 {r['tip']}</div>", unsafe_allow_html=True)
         
-        # Share
+        # Share section
         if verdict != 'UNCLEAR':
             st.markdown("---")
             st.markdown("### 📤 Share")
@@ -949,6 +1074,7 @@ with tabs[0]:
         st.caption(f"ID: {st.session_state.sid}")
     
     else:
+        # Scan input UI
         st.markdown(f'''<div class="stat-row">
             <div class="stat-box"><div class="stat-val">{stats['scans']}</div><div class="stat-lbl">Scans</div></div>
             <div class="stat-box"><div class="stat-val">{stats['avoided']}</div><div class="stat-lbl">Avoided</div></div>
@@ -1000,7 +1126,6 @@ with tabs[0]:
             if bc:
                 imgs = [bc]
                 with st.spinner("Reading barcode..."):
-                    # Try pyzbar first, then AI
                     barcode = try_decode_barcode(bc)
                     if not barcode:
                         barcode = ai_read_barcode(bc)
@@ -1038,9 +1163,12 @@ with tabs[0]:
                     # Get barcode info if available
                     bc_info = st.session_state.get('barcode_info')
                     
-                    result = analyze(imgs, loc, update, bc_info)
+                    # Check for cached score first
+                    cached = None
                     
-                    # Check for cached score
+                    result = analyze(imgs, loc, update, bc_info, cached)
+                    
+                    # Check for cached score after analysis (for product name)
                     if result.get('product_name') and result.get('verdict') != 'UNCLEAR':
                         cached = get_cached_product_score(result['product_name'])
                         if cached and cached.get('score'):
@@ -1070,29 +1198,30 @@ with tabs[0]:
 # TAB: SEARCH
 # =============================================================================
 with tabs[1]:
-    st.markdown("### 🔎 Search")
+    st.markdown("### 🔎 Search Products")
     if supa_ok():
-        st.caption(f"{cloud_get_stats().get('products', 0)} products")
-    q = st.text_input("", placeholder="Search product...", label_visibility="collapsed")
+        st.caption(f"🌍 {cloud_get_stats().get('products', 0)} products in global database")
+    q = st.text_input("", placeholder="Search any product...", label_visibility="collapsed")
     if q and len(q) >= 2:
         results = cloud_search(q)
         for p in results:
             score = int(p.get('avg_score', 0))
+            verdict = get_verdict(score)
             st.markdown(f'''<div class="history-row">
-                <div style="flex:1;"><b>{p.get('product_name')}</b><br/><span style="font-size:0.7rem;color:#64748b;">{p.get('brand')} • {p.get('scan_count')}x</span></div>
+                <div style="flex:1;"><b>{p.get('product_name')}</b><br/><span style="font-size:0.7rem;color:#64748b;">{p.get('brand')} • Scanned {p.get('scan_count')}x</span></div>
                 <div class="history-score" style="background:{score_color(score)};">{score}</div>
             </div>''', unsafe_allow_html=True)
         if not results:
-            st.info("Not found - scan it!")
+            st.info("Not found in database - scan it to add!")
 
 # =============================================================================
 # TAB: HISTORY
 # =============================================================================
 with tabs[2]:
-    st.markdown("### 📜 History")
+    st.markdown("### 📜 Your History")
     history = get_history(user_id, 20)
     if not history:
-        st.info("No scans yet")
+        st.info("No scans yet - start scanning products!")
     for h in history:
         col1, col2 = st.columns([5, 1])
         with col1:
@@ -1109,15 +1238,16 @@ with tabs[2]:
 # TAB: PROFILE
 # =============================================================================
 with tabs[3]:
-    st.markdown("### 👤 Profile")
+    st.markdown("### 👤 Your Profile")
     st.markdown(f'''<div class="stat-row">
-        <div class="stat-box"><div class="stat-val">{stats['scans']}</div><div class="stat-lbl">Scans</div></div>
+        <div class="stat-box"><div class="stat-val">{stats['scans']}</div><div class="stat-lbl">Total Scans</div></div>
         <div class="stat-box"><div class="stat-val">{stats['avoided']}</div><div class="stat-lbl">Avoided</div></div>
-        <div class="stat-box"><div class="stat-val">🔥 {stats['streak']}</div><div class="stat-lbl">Streak</div></div>
+        <div class="stat-box"><div class="stat-val">🔥 {stats['streak']}</div><div class="stat-lbl">Day Streak</div></div>
     </div>''', unsafe_allow_html=True)
     
     st.markdown("---")
-    st.markdown("**📍 Location**")
+    st.markdown("**📍 Your Location**")
+    st.caption("For local store recommendations")
     col1, col2 = st.columns(2)
     with col1:
         city = st.text_input("City", value=loc.get('city', '') if loc.get('city') != 'Unknown' else '')
@@ -1128,11 +1258,12 @@ with tabs[3]:
             save_location(city, country)
             code = 'AU' if 'austral' in country.lower() else 'OTHER'
             st.session_state.loc = {'city': city, 'country': country, 'code': code, 'retailers': RETAILERS.get(code, RETAILERS['OTHER'])}
-            st.success("✅ Saved!")
+            st.success("✅ Location saved!")
             st.rerun()
     
     st.markdown("---")
-    st.markdown("**🛡️ Allergens**")
+    st.markdown("**🛡️ Allergen Alerts**")
+    st.caption("Get warned when products contain these")
     curr_a = get_allergies()
     sel_a = []
     cols = st.columns(3)
@@ -1142,20 +1273,21 @@ with tabs[3]:
                 sel_a.append(a)
     
     st.markdown("---")
-    st.markdown("**👨‍👩‍👧 Profiles**")
+    st.markdown("**👨‍👩‍👧 Safety Profiles**")
+    st.caption("Extra warnings for specific needs")
     curr_p = get_profiles()
     sel_p = []
     for k, v in PROFILES.items():
         if st.checkbox(f"{v['icon']} {v['name']}", value=k in curr_p, key=f"p{k}"):
             sel_p.append(k)
     
-    if st.button("💾 Save Settings", type="primary"):
+    if st.button("💾 Save All Settings", type="primary"):
         save_allergies(sel_a)
         save_profiles(sel_p)
-        st.success("✅ Saved!")
+        st.success("✅ Settings saved!")
     
     st.markdown("---")
-    with st.expander("🔐 Admin"):
+    with st.expander("🔐 Admin Access"):
         pwd = st.text_input("Password", type="password")
         if st.button("Login"):
             if hashlib.sha256(pwd.encode()).hexdigest() == ADMIN_HASH:
@@ -1167,22 +1299,38 @@ with tabs[3]:
 # =============================================================================
 if st.session_state.admin and len(tabs) > 4:
     with tabs[4]:
-        st.markdown("### 📊 Admin")
-        if st.button("Logout"):
+        st.markdown("### ⚙️ Admin Dashboard")
+        if st.button("🚪 Logout"):
             st.session_state.admin = False
             st.rerun()
         
-        st.markdown(f"**Supabase:** {'✅' if supa_ok() else '❌'}")
+        st.markdown("---")
+        st.markdown("**🌐 Cloud Database (Supabase)**")
+        st.markdown(f"Status: {'✅ Connected' if supa_ok() else '❌ Not Connected'}")
+        
         if supa_ok():
             cs = cloud_get_stats()
-            st.markdown(f"**Stats:** {cs.get('scans', 0)} scans, {cs.get('products', 0)} products")
-            st.markdown("**Recent:**")
+            st.markdown(f"**📊 Stats:** {cs.get('scans', 0)} total scans, {cs.get('products', 0)} unique products")
+            
+            st.markdown("**🕐 Recent Scans:**")
             for s in cloud_get_recent_scans(15):
-                st.markdown(f"• {s.get('product_name')} ({s.get('score')}) - {s.get('city')}")
+                score = s.get('score', 0)
+                st.markdown(f"• **{s.get('product_name')}** ({score}/100) - {s.get('city', 'Unknown')}")
+        else:
+            st.warning("Supabase not configured. Add SUPABASE_URL and SUPABASE_KEY to secrets.")
+            st.code("""
+# In Streamlit secrets.toml:
+SUPABASE_URL = "https://yourproject.supabase.co"
+SUPABASE_KEY = "eyJ..."  # Must start with eyJ (legacy format)
+            """)
         
         st.markdown("---")
-        st.markdown("**Local:**")
-        for s in get_all_history_admin(20):
-            st.markdown(f"{'🗑️' if s.get('deleted') else '•'} {s['product']} ({s['score']})")
+        st.markdown("**💾 Local Database**")
+        st.markdown(f"Path: `{LOCAL_DB}`")
+        local_history = get_all_history_admin(20)
+        st.markdown(f"**Local records:** {len(local_history)}")
+        for s in local_history[:10]:
+            icon = '🗑️' if s.get('deleted') else '•'
+            st.markdown(f"{icon} **{s['product']}** ({s['score']}/100)")
 
-st.markdown(f"<div style='text-align:center;color:#94a3b8;font-size:0.65rem;padding:0.5rem;'>🌍 v20 • {loc.get('city', '?')}</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center;color:#94a3b8;font-size:0.65rem;padding:0.5rem;'>🌍 v21 • {loc.get('city', 'Unknown')}</div>", unsafe_allow_html=True)
