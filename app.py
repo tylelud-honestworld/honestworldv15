@@ -54,11 +54,9 @@ ADMIN_HASH = hashlib.sha256("honestworld2024".encode()).hexdigest()
 def create_share_image(product_name, brand, score, verdict, main_issue=""):
     """Generate a beautiful shareable image for social media."""
     
-    # Image size (Instagram story: 1080x1920, post: 1080x1080)
-    # Using square for versatility
+    # Square format for versatility
     width, height = 1080, 1080
     
-    # Colors based on verdict
     colors = {
         'BUY': {'bg': '#22c55e', 'bg2': '#16a34a', 'text': '#ffffff'},
         'CAUTION': {'bg': '#f59e0b', 'bg2': '#d97706', 'text': '#ffffff'},
@@ -68,65 +66,62 @@ def create_share_image(product_name, brand, score, verdict, main_issue=""):
     
     c = colors.get(verdict, colors['CAUTION'])
     
-    # Create image with gradient-like background
     img = Image.new('RGB', (width, height), c['bg'])
     draw = ImageDraw.Draw(img)
     
-    # Draw darker bottom half for gradient effect
+    # Gradient effect - darker bottom
     draw.rectangle([0, height//2, width, height], fill=c['bg2'])
     
-    # Try to load fonts, fallback to default
     try:
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 120)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
-        font_tiny = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 100)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 35)
+        font_tiny = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
     except:
-        font_large = ImageFont.load_default()
-        font_medium = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-        font_tiny = ImageFont.load_default()
+        font_large = font_medium = font_small = font_tiny = ImageFont.load_default()
     
-    # Draw content
-    y_pos = 80
+    y_pos = 60
     
     # Logo/Title
-    draw.text((width//2, y_pos), "🌍 HonestWorld", fill=c['text'], anchor="mt", font=font_medium)
-    y_pos += 100
+    draw.text((width//2, y_pos), "HonestWorld", fill=c['text'], anchor="mt", font=font_medium)
+    y_pos += 90
     
-    # Verdict icon
-    verdict_icons = {'BUY': '✓', 'CAUTION': '⚠', 'AVOID': '✗', 'UNCLEAR': '?'}
+    # Verdict icon - using simple text that renders well
+    verdict_icons = {'BUY': '✓', 'CAUTION': '!', 'AVOID': 'X', 'UNCLEAR': '?'}
     draw.text((width//2, y_pos), verdict_icons.get(verdict, '?'), fill=c['text'], anchor="mt", font=font_large)
-    y_pos += 150
+    y_pos += 130
     
     # Verdict text
     verdict_texts = {'BUY': 'GOOD TO BUY', 'CAUTION': 'USE CAUTION', 'AVOID': 'AVOID THIS', 'UNCLEAR': 'UNCLEAR'}
     draw.text((width//2, y_pos), verdict_texts.get(verdict, 'UNKNOWN'), fill=c['text'], anchor="mt", font=font_medium)
-    y_pos += 100
+    y_pos += 90
     
-    # Score
+    # Score - BIG
     draw.text((width//2, y_pos), f"{score}/100", fill=c['text'], anchor="mt", font=font_large)
-    y_pos += 180
+    y_pos += 160
     
-    # Product name (truncate if too long)
-    product_display = product_name[:35] + "..." if len(product_name) > 35 else product_name
+    # Product name - smart truncation
+    if len(product_name) > 28:
+        product_display = product_name[:25] + "..."
+    else:
+        product_display = product_name
     draw.text((width//2, y_pos), product_display, fill=c['text'], anchor="mt", font=font_small)
-    y_pos += 60
+    y_pos += 55
     
     # Brand
     if brand:
-        draw.text((width//2, y_pos), f"by {brand}", fill=c['text'], anchor="mt", font=font_tiny)
-    y_pos += 100
+        brand_display = f"by {brand[:18]}" if len(brand) > 18 else f"by {brand}"
+        draw.text((width//2, y_pos), brand_display, fill=c['text'], anchor="mt", font=font_tiny)
+    y_pos += 70
     
-    # Main issue (if any)
-    if main_issue and 'no significant' not in main_issue.lower():
-        # Wrap text
-        issue_short = main_issue[:60] + "..." if len(main_issue) > 60 else main_issue
-        draw.text((width//2, y_pos), f"⚠ {issue_short}", fill=c['text'], anchor="mt", font=font_tiny)
+    # Main issue (if any, shortened)
+    if main_issue and 'no significant' not in main_issue.lower() and 'could not' not in main_issue.lower():
+        issue_short = main_issue[:45] + "..." if len(main_issue) > 45 else main_issue
+        draw.text((width//2, y_pos), issue_short, fill=c['text'], anchor="mt", font=font_tiny)
     
     # Footer
-    draw.text((width//2, height - 60), "Scan products at HonestWorld.app", fill=c['text'], anchor="mb", font=font_tiny)
-    draw.text((width//2, height - 30), "#HonestWorld #ConsumerAwareness", fill=c['text'], anchor="mb", font=font_tiny)
+    draw.text((width//2, height - 55), "Scan at HonestWorld.app", fill=c['text'], anchor="mm", font=font_small)
+    draw.text((width//2, height - 20), "#HonestWorld", fill=c['text'], anchor="mm", font=font_tiny)
     
     return img
 
@@ -151,44 +146,50 @@ def create_story_image(product_name, brand, score, verdict, main_issue=""):
     draw.rectangle([0, height//2, width, height], fill=c['bg2'])
     
     try:
-        font_huge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 180)
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 100)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
+        font_huge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 160)
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 55)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 45)
     except:
         font_huge = font_large = font_medium = font_small = ImageFont.load_default()
     
-    y_pos = 200
+    y_pos = 250
     
-    # Logo
-    draw.text((width//2, y_pos), "🌍 HonestWorld", fill=c['text'], anchor="mt", font=font_medium)
-    y_pos += 200
+    # Logo - using text instead of emoji for better rendering
+    draw.text((width//2, y_pos), "HonestWorld", fill=c['text'], anchor="mt", font=font_large)
+    y_pos += 180
     
     # Verdict icon
-    verdict_icons = {'BUY': '✓', 'CAUTION': '⚠', 'AVOID': '✗', 'UNCLEAR': '?'}
+    verdict_icons = {'BUY': '✓', 'CAUTION': '!', 'AVOID': 'X', 'UNCLEAR': '?'}
     draw.text((width//2, y_pos), verdict_icons.get(verdict, '?'), fill=c['text'], anchor="mt", font=font_huge)
-    y_pos += 250
+    y_pos += 200
     
     # Verdict text
     verdict_texts = {'BUY': 'GOOD TO BUY', 'CAUTION': 'USE CAUTION', 'AVOID': 'AVOID THIS', 'UNCLEAR': 'UNCLEAR'}
     draw.text((width//2, y_pos), verdict_texts.get(verdict, 'UNKNOWN'), fill=c['text'], anchor="mt", font=font_large)
-    y_pos += 180
+    y_pos += 150
     
-    # Score
+    # Score - big and centered
     draw.text((width//2, y_pos), f"{score}/100", fill=c['text'], anchor="mt", font=font_huge)
-    y_pos += 300
+    y_pos += 280
     
-    # Product
-    product_display = product_name[:30] + "..." if len(product_name) > 30 else product_name
+    # Product name - truncate smartly to fit width
+    # Max ~25 chars to fit safely
+    if len(product_name) > 25:
+        product_display = product_name[:22] + "..."
+    else:
+        product_display = product_name
     draw.text((width//2, y_pos), product_display, fill=c['text'], anchor="mt", font=font_medium)
-    y_pos += 100
+    y_pos += 90
     
+    # Brand
     if brand:
-        draw.text((width//2, y_pos), f"by {brand}", fill=c['text'], anchor="mt", font=font_small)
+        brand_display = f"by {brand[:20]}" if len(brand) > 20 else f"by {brand}"
+        draw.text((width//2, y_pos), brand_display, fill=c['text'], anchor="mt", font=font_small)
     
-    # Footer
-    draw.text((width//2, height - 150), "Scan YOUR products at", fill=c['text'], anchor="mb", font=font_small)
-    draw.text((width//2, height - 80), "HonestWorld.app", fill=c['text'], anchor="mb", font=font_medium)
+    # Footer with padding from edges
+    draw.text((width//2, height - 180), "Scan YOUR products at", fill=c['text'], anchor="mm", font=font_small)
+    draw.text((width//2, height - 100), "HonestWorld.app", fill=c['text'], anchor="mm", font=font_medium)
     
     return img
 
@@ -963,43 +964,70 @@ with tabs[0]:
             share_img = st.session_state.share_img
             share_story = st.session_state.share_story
             
-            st.markdown("<div class='share-section'>", unsafe_allow_html=True)
+            # Convert to bytes for download
+            def img_to_bytes(img):
+                buf = BytesIO()
+                img.save(buf, format='PNG')
+                return buf.getvalue()
             
-            # Preview
+            st.markdown("#### 📱 Download & Share")
+            
             col1, col2 = st.columns(2)
+            
             with col1:
-                st.markdown("**📱 Post (1:1)**")
-                st.image(share_img, width=150)
-                b64_post = image_to_base64(share_img)
-                st.markdown(f'''<a href="data:image/png;base64,{b64_post}" download="honestworld_{score}.png" 
-                    style="display:inline-block;padding:8px 16px;background:#6366f1;color:white;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600;">
-                    ⬇️ Download Post</a>''', unsafe_allow_html=True)
+                st.markdown("**Post (Square)**")
+                st.image(share_img, width=180)
+                post_bytes = img_to_bytes(share_img)
+                st.download_button(
+                    label="⬇️ Download Post",
+                    data=post_bytes,
+                    file_name=f"honestworld_{score}.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
             
             with col2:
-                st.markdown("**📱 Story (9:16)**")
-                st.image(share_story, width=100)
-                b64_story = image_to_base64(share_story)
-                st.markdown(f'''<a href="data:image/png;base64,{b64_story}" download="honestworld_story_{score}.png" 
-                    style="display:inline-block;padding:8px 16px;background:linear-gradient(45deg,#f09433,#dc2743);color:white;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600;">
-                    ⬇️ Download Story</a>''', unsafe_allow_html=True)
+                st.markdown("**Story (9:16)**")
+                st.image(share_story, width=120)
+                story_bytes = img_to_bytes(share_story)
+                st.download_button(
+                    label="⬇️ Download Story",
+                    data=story_bytes,
+                    file_name=f"honestworld_story_{score}.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
             
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown("#### 🚀 Open App & Share")
             
-            # Quick share links
-            share_text = f"🌍 I scanned {product_name} - scored {score}/100! Check your products at HonestWorld #HonestWorld"
-            encoded = urllib.parse.quote(share_text)
+            # Direct app links
+            col1, col2, col3, col4 = st.columns(4)
             
-            st.markdown("**Quick Share:**")
-            st.markdown(f'''
-            <div class="share-buttons">
-                <a href="https://twitter.com/intent/tweet?text={encoded}" target="_blank" class="share-btn share-twitter">🐦 Tweet</a>
-                <a href="https://wa.me/?text={encoded}" target="_blank" class="share-btn share-whatsapp">💬 WhatsApp</a>
-                <a href="https://www.facebook.com/sharer/sharer.php?quote={encoded}" target="_blank" class="share-btn share-facebook">📘 Facebook</a>
+            with col1:
+                st.markdown('''<a href="instagram://camera" target="_blank" style="display:block;text-align:center;padding:12px;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:white;border-radius:10px;text-decoration:none;font-weight:600;">📸 Instagram</a>''', unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown('''<a href="https://www.tiktok.com/upload" target="_blank" style="display:block;text-align:center;padding:12px;background:#000000;color:white;border-radius:10px;text-decoration:none;font-weight:600;">🎵 TikTok</a>''', unsafe_allow_html=True)
+            
+            with col3:
+                share_text = f"I scanned {product_name} - {score}/100! #HonestWorld"
+                wa_url = f"https://wa.me/?text={urllib.parse.quote(share_text)}"
+                st.markdown(f'''<a href="{wa_url}" target="_blank" style="display:block;text-align:center;padding:12px;background:#25D366;color:white;border-radius:10px;text-decoration:none;font-weight:600;">💬 WhatsApp</a>''', unsafe_allow_html=True)
+            
+            with col4:
+                tweet_url = f"https://twitter.com/intent/tweet?text={urllib.parse.quote(share_text)}"
+                st.markdown(f'''<a href="{tweet_url}" target="_blank" style="display:block;text-align:center;padding:12px;background:#1DA1F2;color:white;border-radius:10px;text-decoration:none;font-weight:600;">🐦 Twitter</a>''', unsafe_allow_html=True)
+            
+            st.markdown("""
+            <div style="background:#f1f5f9;padding:12px;border-radius:10px;margin-top:10px;">
+            <strong>📱 How to share on Instagram/TikTok:</strong><br/>
+            1. Download image above (Post or Story)<br/>
+            2. Tap Instagram/TikTok button to open app<br/>
+            3. Create new post/story and select downloaded image<br/>
+            4. Add caption and post! 🎉
             </div>
-            <p style="font-size:0.75rem;color:#64748b;text-align:center;margin-top:0.5rem;">
-                📸 For Instagram/TikTok: Download image above → Open app → Create post → Upload image
-            </p>
-            ''', unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
         
         st.caption(f"ID: {st.session_state.sid}")
     
