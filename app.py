@@ -1,12 +1,11 @@
 """
-🌍 HONESTWORLD v16.0 - ALL BUGS FIXED
+🌍 HONESTWORLD v18.0 - SHAREABLE IMAGES + LEGACY SUPABASE
 
-FIXES:
-✅ Location: Uses browser geolocation (asks user permission)
-✅ Consistency: Lower AI temperature + stricter scoring
-✅ Share buttons: ALL 6 platforms restored
-✅ Admin database: Fixed Supabase saving
-✅ Score verification: Double-checks math
+NEW:
+✅ Generates shareable image cards for Instagram/TikTok
+✅ Uses Legacy Supabase JWT keys (the ones that work)
+✅ Download button for share image
+✅ Beautiful score cards ready to post
 """
 
 import streamlit as st
@@ -14,7 +13,7 @@ import google.generativeai as genai
 import json
 import re
 import sqlite3
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import requests
 from datetime import datetime, timedelta
 import uuid
@@ -35,9 +34,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-LOCAL_DB = Path.home() / "honestworld_v16.db"
+LOCAL_DB = Path.home() / "honestworld_v18.db"
 
-# API Keys from secrets
 def get_secret(key, default=""):
     try:
         return st.secrets.get(key, os.environ.get(key, default))
@@ -48,21 +46,210 @@ GEMINI_API_KEY = get_secret("GEMINI_API_KEY", "AIzaSyCnUy-L-Bv4wlm9h1lSDY7GQKtD3
 SUPABASE_URL = get_secret("SUPABASE_URL", "")
 SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 
-# Admin password
 ADMIN_HASH = hashlib.sha256("honestworld2024".encode()).hexdigest()
 
 # =============================================================================
-# SUPABASE FUNCTIONS - FIXED
+# SHAREABLE IMAGE GENERATOR
+# =============================================================================
+def create_share_image(product_name, brand, score, verdict, main_issue=""):
+    """Generate a beautiful shareable image for social media."""
+    
+    # Image size (Instagram story: 1080x1920, post: 1080x1080)
+    # Using square for versatility
+    width, height = 1080, 1080
+    
+    # Colors based on verdict
+    colors = {
+        'BUY': {'bg': '#22c55e', 'bg2': '#16a34a', 'text': '#ffffff'},
+        'CAUTION': {'bg': '#f59e0b', 'bg2': '#d97706', 'text': '#ffffff'},
+        'AVOID': {'bg': '#ef4444', 'bg2': '#dc2626', 'text': '#ffffff'},
+        'UNCLEAR': {'bg': '#6b7280', 'bg2': '#4b5563', 'text': '#ffffff'}
+    }
+    
+    c = colors.get(verdict, colors['CAUTION'])
+    
+    # Create image with gradient-like background
+    img = Image.new('RGB', (width, height), c['bg'])
+    draw = ImageDraw.Draw(img)
+    
+    # Draw darker bottom half for gradient effect
+    draw.rectangle([0, height//2, width, height], fill=c['bg2'])
+    
+    # Try to load fonts, fallback to default
+    try:
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 120)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 60)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+        font_tiny = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
+    except:
+        font_large = ImageFont.load_default()
+        font_medium = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+        font_tiny = ImageFont.load_default()
+    
+    # Draw content
+    y_pos = 80
+    
+    # Logo/Title
+    draw.text((width//2, y_pos), "🌍 HonestWorld", fill=c['text'], anchor="mt", font=font_medium)
+    y_pos += 100
+    
+    # Verdict icon
+    verdict_icons = {'BUY': '✓', 'CAUTION': '⚠', 'AVOID': '✗', 'UNCLEAR': '?'}
+    draw.text((width//2, y_pos), verdict_icons.get(verdict, '?'), fill=c['text'], anchor="mt", font=font_large)
+    y_pos += 150
+    
+    # Verdict text
+    verdict_texts = {'BUY': 'GOOD TO BUY', 'CAUTION': 'USE CAUTION', 'AVOID': 'AVOID THIS', 'UNCLEAR': 'UNCLEAR'}
+    draw.text((width//2, y_pos), verdict_texts.get(verdict, 'UNKNOWN'), fill=c['text'], anchor="mt", font=font_medium)
+    y_pos += 100
+    
+    # Score
+    draw.text((width//2, y_pos), f"{score}/100", fill=c['text'], anchor="mt", font=font_large)
+    y_pos += 180
+    
+    # Product name (truncate if too long)
+    product_display = product_name[:35] + "..." if len(product_name) > 35 else product_name
+    draw.text((width//2, y_pos), product_display, fill=c['text'], anchor="mt", font=font_small)
+    y_pos += 60
+    
+    # Brand
+    if brand:
+        draw.text((width//2, y_pos), f"by {brand}", fill=c['text'], anchor="mt", font=font_tiny)
+    y_pos += 100
+    
+    # Main issue (if any)
+    if main_issue and 'no significant' not in main_issue.lower():
+        # Wrap text
+        issue_short = main_issue[:60] + "..." if len(main_issue) > 60 else main_issue
+        draw.text((width//2, y_pos), f"⚠ {issue_short}", fill=c['text'], anchor="mt", font=font_tiny)
+    
+    # Footer
+    draw.text((width//2, height - 60), "Scan products at HonestWorld.app", fill=c['text'], anchor="mb", font=font_tiny)
+    draw.text((width//2, height - 30), "#HonestWorld #ConsumerAwareness", fill=c['text'], anchor="mb", font=font_tiny)
+    
+    return img
+
+def create_story_image(product_name, brand, score, verdict, main_issue=""):
+    """Generate Instagram/TikTok story format (9:16)."""
+    
+    width, height = 1080, 1920
+    
+    colors = {
+        'BUY': {'bg': '#22c55e', 'bg2': '#16a34a', 'text': '#ffffff'},
+        'CAUTION': {'bg': '#f59e0b', 'bg2': '#d97706', 'text': '#ffffff'},
+        'AVOID': {'bg': '#ef4444', 'bg2': '#dc2626', 'text': '#ffffff'},
+        'UNCLEAR': {'bg': '#6b7280', 'bg2': '#4b5563', 'text': '#ffffff'}
+    }
+    
+    c = colors.get(verdict, colors['CAUTION'])
+    
+    img = Image.new('RGB', (width, height), c['bg'])
+    draw = ImageDraw.Draw(img)
+    
+    # Gradient effect
+    draw.rectangle([0, height//2, width, height], fill=c['bg2'])
+    
+    try:
+        font_huge = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 180)
+        font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 100)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 50)
+    except:
+        font_huge = font_large = font_medium = font_small = ImageFont.load_default()
+    
+    y_pos = 200
+    
+    # Logo
+    draw.text((width//2, y_pos), "🌍 HonestWorld", fill=c['text'], anchor="mt", font=font_medium)
+    y_pos += 200
+    
+    # Verdict icon
+    verdict_icons = {'BUY': '✓', 'CAUTION': '⚠', 'AVOID': '✗', 'UNCLEAR': '?'}
+    draw.text((width//2, y_pos), verdict_icons.get(verdict, '?'), fill=c['text'], anchor="mt", font=font_huge)
+    y_pos += 250
+    
+    # Verdict text
+    verdict_texts = {'BUY': 'GOOD TO BUY', 'CAUTION': 'USE CAUTION', 'AVOID': 'AVOID THIS', 'UNCLEAR': 'UNCLEAR'}
+    draw.text((width//2, y_pos), verdict_texts.get(verdict, 'UNKNOWN'), fill=c['text'], anchor="mt", font=font_large)
+    y_pos += 180
+    
+    # Score
+    draw.text((width//2, y_pos), f"{score}/100", fill=c['text'], anchor="mt", font=font_huge)
+    y_pos += 300
+    
+    # Product
+    product_display = product_name[:30] + "..." if len(product_name) > 30 else product_name
+    draw.text((width//2, y_pos), product_display, fill=c['text'], anchor="mt", font=font_medium)
+    y_pos += 100
+    
+    if brand:
+        draw.text((width//2, y_pos), f"by {brand}", fill=c['text'], anchor="mt", font=font_small)
+    
+    # Footer
+    draw.text((width//2, height - 150), "Scan YOUR products at", fill=c['text'], anchor="mb", font=font_small)
+    draw.text((width//2, height - 80), "HonestWorld.app", fill=c['text'], anchor="mb", font=font_medium)
+    
+    return img
+
+def image_to_base64(img):
+    """Convert PIL image to base64 for display and download."""
+    buf = BytesIO()
+    img.save(buf, format='PNG', quality=95)
+    buf.seek(0)
+    return base64.b64encode(buf.getvalue()).decode()
+
+def get_image_download_link(img, filename, text):
+    """Generate download link for image."""
+    b64 = image_to_base64(img)
+    return f'<a href="data:image/png;base64,{b64}" download="{filename}" style="display:inline-block;padding:10px 20px;background:#3b82f6;color:white;border-radius:8px;text-decoration:none;font-weight:600;margin:5px;">{text}</a>'
+
+# =============================================================================
+# BARCODE SCANNING
+# =============================================================================
+def try_decode_barcode(image_file):
+    try:
+        from pyzbar import pyzbar
+        image_file.seek(0)
+        img = Image.open(image_file)
+        barcodes = pyzbar.decode(img)
+        if barcodes:
+            return barcodes[0].data.decode('utf-8')
+    except:
+        pass
+    return None
+
+def lookup_barcode(barcode):
+    try:
+        r = requests.get(f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json", timeout=5)
+        if r.ok:
+            data = r.json()
+            if data.get('status') == 1:
+                product = data.get('product', {})
+                return {
+                    'name': product.get('product_name', ''),
+                    'brand': product.get('brands', ''),
+                    'ingredients': product.get('ingredients_text', ''),
+                    'found': True
+                }
+    except:
+        pass
+    return {'found': False}
+
+# =============================================================================
+# SUPABASE - LEGACY JWT FORMAT
 # =============================================================================
 def supa_ok():
-    return bool(SUPABASE_URL and SUPABASE_KEY)
+    # Must have URL and Key, key should be JWT (eyJ) for legacy format
+    return bool(SUPABASE_URL and SUPABASE_KEY and len(SUPABASE_KEY) > 20)
 
 def supa_request(method, table, data=None, params=None):
-    """Universal Supabase request function with better error handling."""
     if not supa_ok():
         return None
     
     url = f"{SUPABASE_URL}/rest/v1/{table}"
+    
+    # Always use legacy JWT format headers
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -77,24 +264,21 @@ def supa_request(method, table, data=None, params=None):
             r = requests.post(url, headers=headers, json=data, timeout=10)
         elif method == "PATCH":
             r = requests.patch(url, headers=headers, json=data, params=params, timeout=10)
+        elif method == "DELETE":
+            r = requests.delete(url, headers=headers, params=params, timeout=10)
         else:
             return None
         
-        if r.status_code in [200, 201]:
-            return r.json() if r.text else True
-        else:
-            st.error(f"Supabase error: {r.status_code} - {r.text[:200]}")
-            return None
-    except Exception as e:
-        st.error(f"Supabase connection error: {e}")
+        if r.status_code in [200, 201, 204]:
+            return r.json() if r.text and r.status_code != 204 else True
+        return None
+    except:
         return None
 
 def cloud_log_scan(result, city, country, user_id):
-    """Log scan to cloud - FIXED."""
     if not supa_ok():
         return False
-    
-    data = {
+    return supa_request("POST", "scans_log", {
         "product_name": str(result.get('product_name', 'Unknown'))[:200],
         "brand": str(result.get('brand', 'Unknown'))[:100],
         "category": str(result.get('product_type', ''))[:50],
@@ -104,38 +288,28 @@ def cloud_log_scan(result, city, country, user_id):
         "city": str(city)[:100],
         "country": str(country)[:100],
         "user_id": str(user_id)[:50]
-    }
-    
-    response = supa_request("POST", "scans_log", data)
-    return response is not None
+    }) is not None
 
 def cloud_save_product(result):
-    """Save/update product in cloud database."""
     if not supa_ok():
         return False
-    
     name_lower = result.get('product_name', '').lower().strip()[:200]
     if not name_lower:
         return False
     
-    # Check if exists
     existing = supa_request("GET", "products", params={
         "product_name_lower": f"eq.{name_lower}",
         "select": "id,avg_score,scan_count"
     })
     
     if existing and len(existing) > 0:
-        # Update existing
         p = existing[0]
         new_count = p['scan_count'] + 1
         new_avg = round(((p['avg_score'] * p['scan_count']) + result.get('score', 0)) / new_count, 1)
-        
         supa_request("PATCH", "products", 
             data={"avg_score": new_avg, "scan_count": new_count},
-            params={"id": f"eq.{p['id']}"}
-        )
+            params={"id": f"eq.{p['id']}"})
     else:
-        # Insert new
         supa_request("POST", "products", {
             "product_name": result.get('product_name', 'Unknown')[:200],
             "product_name_lower": name_lower,
@@ -144,7 +318,6 @@ def cloud_save_product(result):
             "avg_score": result.get('score', 0),
             "scan_count": 1
         })
-    
     return True
 
 def cloud_search(query, limit=15):
@@ -161,10 +334,8 @@ def cloud_search(query, limit=15):
 def cloud_get_stats():
     if not supa_ok():
         return {"products": 0, "scans": 0}
-    
     products = supa_request("GET", "products", params={"select": "id"})
     scans = supa_request("GET", "scans_log", params={"select": "id"})
-    
     return {
         "products": len(products) if products else 0,
         "scans": len(scans) if scans else 0
@@ -174,7 +345,7 @@ def cloud_get_recent_scans(limit=50):
     if not supa_ok():
         return []
     result = supa_request("GET", "scans_log", params={
-        "select": "product_name,brand,score,verdict,city,country,created_at",
+        "select": "product_name,brand,score,verdict,city,country,user_id,created_at",
         "order": "created_at.desc",
         "limit": str(limit)
     })
@@ -252,7 +423,7 @@ def check_alerts(ingredients, allergies, profiles):
     return alerts
 
 # =============================================================================
-# LOCATION - FIXED (Multiple fallbacks)
+# LOCATION
 # =============================================================================
 RETAILERS = {
     "AU": ["Chemist Warehouse", "Priceline", "Woolworths", "Coles"],
@@ -262,13 +433,7 @@ RETAILERS = {
 }
 
 def get_location_from_ip():
-    """Try multiple IP geolocation services."""
-    services = [
-        'https://ipapi.co/json/',
-        'https://ip-api.com/json/',
-        'https://ipwho.is/'
-    ]
-    
+    services = ['https://ipapi.co/json/', 'https://ip-api.com/json/', 'https://ipwho.is/']
     for url in services:
         try:
             r = requests.get(url, timeout=3)
@@ -277,25 +442,12 @@ def get_location_from_ip():
                 city = d.get('city') or d.get('city', 'Unknown')
                 country = d.get('country') or d.get('country_name', 'Unknown')
                 code = d.get('country_code') or d.get('countryCode', 'OTHER')
-                
                 if city and city != 'Unknown':
-                    return {
-                        'city': city,
-                        'country': country,
-                        'code': code,
-                        'retailers': RETAILERS.get(code, RETAILERS['OTHER']),
-                        'source': 'ip'
-                    }
+                    return {'city': city, 'country': country, 'code': code, 
+                            'retailers': RETAILERS.get(code, RETAILERS['OTHER'])}
         except:
             continue
-    
-    return {
-        'city': 'Unknown',
-        'country': 'Unknown', 
-        'code': 'OTHER',
-        'retailers': RETAILERS['OTHER'],
-        'source': 'default'
-    }
+    return {'city': 'Unknown', 'country': 'Unknown', 'code': 'OTHER', 'retailers': RETAILERS['OTHER']}
 
 # =============================================================================
 # LOCAL DATABASE
@@ -303,25 +455,30 @@ def get_location_from_ip():
 def init_db():
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
+    
     c.execute('''CREATE TABLE IF NOT EXISTS scans (
-        id INTEGER PRIMARY KEY, scan_id TEXT, ts DATETIME DEFAULT CURRENT_TIMESTAMP,
-        product TEXT, brand TEXT, score INTEGER, verdict TEXT, thumb BLOB
+        id INTEGER PRIMARY KEY, scan_id TEXT, user_id TEXT,
+        ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+        product TEXT, brand TEXT, score INTEGER, verdict TEXT, thumb BLOB,
+        deleted INTEGER DEFAULT 0
     )''')
+    
     c.execute('CREATE TABLE IF NOT EXISTS allergies (a TEXT PRIMARY KEY)')
     c.execute('CREATE TABLE IF NOT EXISTS profiles (p TEXT PRIMARY KEY)')
+    
     c.execute('''CREATE TABLE IF NOT EXISTS stats (
         id INTEGER PRIMARY KEY DEFAULT 1, scans INTEGER DEFAULT 0, avoided INTEGER DEFAULT 0,
         streak INTEGER DEFAULT 0, best_streak INTEGER DEFAULT 0, last_scan DATE
     )''')
     c.execute('INSERT OR IGNORE INTO stats (id) VALUES (1)')
-    c.execute('''CREATE TABLE IF NOT EXISTS user_info (id INTEGER PRIMARY KEY DEFAULT 1, user_id TEXT)''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS user_info (
+        id INTEGER PRIMARY KEY DEFAULT 1, user_id TEXT, city TEXT, country TEXT
+    )''')
     c.execute('SELECT user_id FROM user_info WHERE id=1')
     if not c.fetchone():
         c.execute('INSERT INTO user_info (id, user_id) VALUES (1, ?)', (str(uuid.uuid4()),))
-    c.execute('''CREATE TABLE IF NOT EXISTS location (
-        id INTEGER PRIMARY KEY DEFAULT 1, city TEXT, country TEXT
-    )''')
-    c.execute('INSERT OR IGNORE INTO location (id) VALUES (1)')
+    
     conn.commit()
     conn.close()
 
@@ -333,29 +490,32 @@ def get_user_id():
     conn.close()
     return r[0] if r else str(uuid.uuid4())
 
-def save_location(city, country):
-    conn = sqlite3.connect(LOCAL_DB)
-    c = conn.cursor()
-    c.execute('UPDATE location SET city=?, country=? WHERE id=1', (city, country))
-    conn.commit()
-    conn.close()
-
 def get_saved_location():
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
-    c.execute('SELECT city, country FROM location WHERE id=1')
+    c.execute('SELECT city, country FROM user_info WHERE id=1')
     r = c.fetchone()
     conn.close()
     if r and r[0]:
         return {'city': r[0], 'country': r[1] or 'Unknown'}
     return None
 
-def save_scan(result, thumb=None):
+def save_location(city, country):
+    conn = sqlite3.connect(LOCAL_DB)
+    c = conn.cursor()
+    c.execute('UPDATE user_info SET city=?, country=? WHERE id=1', (city, country))
+    conn.commit()
+    conn.close()
+
+def save_scan(result, user_id, thumb=None):
     sid = f"HW-{uuid.uuid4().hex[:8].upper()}"
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
-    c.execute('INSERT INTO scans (scan_id, product, brand, score, verdict, thumb) VALUES (?,?,?,?,?,?)',
-        (sid, result.get('product_name',''), result.get('brand',''), result.get('score',0), result.get('verdict',''), thumb))
+    
+    c.execute('''INSERT INTO scans (scan_id, user_id, product, brand, score, verdict, thumb) 
+        VALUES (?,?,?,?,?,?,?)''',
+        (sid, user_id, result.get('product_name',''), result.get('brand',''), 
+         result.get('score',0), result.get('verdict',''), thumb))
     
     today = datetime.now().date()
     c.execute('SELECT scans, avoided, streak, best_streak, last_scan FROM stats WHERE id=1')
@@ -372,17 +532,41 @@ def save_scan(result, thumb=None):
         if result.get('verdict') == 'AVOID': avoided += 1
         c.execute('UPDATE stats SET scans=?, avoided=?, streak=?, best_streak=?, last_scan=? WHERE id=1',
             (scans + 1, avoided, streak, best, today.isoformat()))
+    
     conn.commit()
     conn.close()
     return sid
 
-def get_history(n=20):
+def get_history(user_id, n=20, include_deleted=False):
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
-    c.execute('SELECT scan_id, ts, product, brand, score, verdict, thumb FROM scans ORDER BY ts DESC LIMIT ?', (n,))
+    if include_deleted:
+        c.execute('''SELECT id, scan_id, ts, product, brand, score, verdict, thumb 
+            FROM scans WHERE user_id=? ORDER BY ts DESC LIMIT ?''', (user_id, n))
+    else:
+        c.execute('''SELECT id, scan_id, ts, product, brand, score, verdict, thumb 
+            FROM scans WHERE user_id=? AND deleted=0 ORDER BY ts DESC LIMIT ?''', (user_id, n))
     rows = c.fetchall()
     conn.close()
-    return [{'id': r[0], 'ts': r[1], 'product': r[2], 'brand': r[3], 'score': r[4], 'verdict': r[5], 'thumb': r[6]} for r in rows]
+    return [{'db_id': r[0], 'id': r[1], 'ts': r[2], 'product': r[3], 'brand': r[4], 
+             'score': r[5], 'verdict': r[6], 'thumb': r[7]} for r in rows]
+
+def delete_scan(db_id, user_id):
+    conn = sqlite3.connect(LOCAL_DB)
+    c = conn.cursor()
+    c.execute('UPDATE scans SET deleted=1 WHERE id=? AND user_id=?', (db_id, user_id))
+    conn.commit()
+    conn.close()
+
+def get_all_history_admin(n=100):
+    conn = sqlite3.connect(LOCAL_DB)
+    c = conn.cursor()
+    c.execute('''SELECT id, scan_id, ts, product, brand, score, verdict, user_id, deleted 
+        FROM scans ORDER BY ts DESC LIMIT ?''', (n,))
+    rows = c.fetchall()
+    conn.close()
+    return [{'db_id': r[0], 'id': r[1], 'ts': r[2], 'product': r[3], 'brand': r[4], 
+             'score': r[5], 'verdict': r[6], 'user_id': r[7], 'deleted': r[8]} for r in rows]
 
 def get_stats():
     conn = sqlite3.connect(LOCAL_DB)
@@ -427,112 +611,95 @@ def save_profiles(lst):
 init_db()
 
 # =============================================================================
-# AI ANALYSIS - FIXED FOR CONSISTENCY
+# AI ANALYSIS
 # =============================================================================
-PROMPT = """You are a product integrity analyzer. Be CONSISTENT and ACCURATE.
+PROMPT = """Analyze this product for marketing deception.
 
-IMPORTANT RULES FOR CONSISTENCY:
-1. Same product = Same score (within 5 points)
-2. Count ALL harmful ingredients, not just some
-3. Apply ALL applicable laws, not random ones
-4. Score = 100 minus total violation points
+CRITICAL RULES:
+1. If you cannot clearly read the product name or ingredients - set readable to false
+2. NEVER give score 100 unless genuinely perfect
+3. If image is blurry/unreadable - score 0, verdict UNCLEAR
+4. Be STRICT - most products have issues (typical score 60-85)
 
-THE 20 INTEGRITY LAWS:
-1. Water-Down (-15): First ingredient is cheap filler (water, aqua) but product marketed as premium/concentrated
-2. Fairy Dusting (-12): Advertised "hero" ingredient is below position #5 in ingredients list
-3. Split Sugar (-20): Sugar split into multiple names (sugar, corn syrup, dextrose, fructose, etc.)
-4. Low-Fat Trap (-10): Labeled low-fat but high in sugar or sodium
-5. Natural Fallacy (-10): "Natural" or "gentle" claim but contains synthetic chemicals
-6. Made-With Trick (-8): "Made with X" prominently displayed but X is minimal amount
-7. Serving Trick (-10): Unrealistically small serving size to hide nutrition facts
-8. Slack Fill (-8): Package is mostly empty/air
-9. Spec Inflation (-15): "Up to X hours/speed" only achievable in perfect lab conditions
-10. Compatibility Lie (-12): "Universal" or "works with all" but has many exceptions
-11. Military Myth (-10): "Military grade" without actual military certification
-12. Battery Fiction (-12): Battery life claims unrealistic
-13. Clinical Ghost (-12): "Clinically proven" without accessible study details
-14. Dilution Trick (-10): Active ingredients present but too diluted to be effective
-15. Free Trap (-15): "Free" offer requires credit card or hidden fees
-16. Unlimited Lie (-18): "Unlimited" service has hidden caps or throttling
-17. Lifetime Illusion (-10): "Lifetime warranty" excludes most failure modes
-18. Photo Fake (-12): Package photo significantly different from actual product
-19. Fake Cert (-15): Claims certification that doesn't exist or isn't verified
-20. Name Trick (-10): Product name implies ingredient that isn't present or is minimal
+THE 20 INTEGRITY LAWS (deduct points for each found):
+1. Water-Down (-15): First ingredient is cheap filler but marketed as premium
+2. Fairy Dusting (-12): Advertised ingredient below position #5
+3. Split Sugar (-20): Sugar split into multiple names
+4. Low-Fat Trap (-10): Low-fat but high sugar/sodium
+5. Natural Fallacy (-10): "Natural" claim with synthetics
+6. Made-With Trick (-8): "Made with X" but X is minimal
+7. Serving Trick (-10): Tiny unrealistic serving size
+8. Slack Fill (-8): Package mostly empty
+9. Spec Inflation (-15): "Up to X" unrealistic
+10. Compatibility Lie (-12): "Universal" with exceptions
+11. Military Myth (-10): Fake military grade
+12. Battery Fiction (-12): Unrealistic battery claims
+13. Clinical Ghost (-12): "Clinically proven" no proof
+14. Dilution Trick (-10): Actives too diluted
+15. Free Trap (-15): "Free" needs credit card
+16. Unlimited Lie (-18): "Unlimited" with caps
+17. Lifetime Illusion (-10): Warranty excludes everything
+18. Photo Fake (-12): Package vs reality mismatch
+19. Fake Cert (-15): Unverified certification
+20. Name Trick (-10): Name implies absent ingredient
 
-HARMFUL INGREDIENTS (always flag these):
-- Parabens (methylparaben, propylparaben, butylparaben, ethylparaben)
-- BHA, BHT
-- Triclosan
-- Formaldehyde, formaldehyde releasers
-- Phthalates
-- Oxybenzone
-- Coal tar
-- Hydroquinone
-- Lead, mercury
-- Toluene
+HARMFUL INGREDIENTS: Parabens, BHA, BHT, Triclosan, Formaldehyde, Phthalates, Oxybenzone, Coal tar, Hydroquinone, Lead, Mercury, Toluene
 
-SCORING:
-- Start at 100
-- Subtract points for each violation
-- 80-100 = BUY (green) - Minor or no issues
-- 50-79 = CAUTION (orange) - Some concerns
-- 0-49 = AVOID (red) - Major problems
+SCORING: 80-100=BUY | 50-79=CAUTION | 0-49=AVOID | Unreadable=UNCLEAR
 
-Location: {location}
-Local stores: {retailers}
+Location: {location} | Stores: {retailers}
+{barcode_info}
 
-OUTPUT ONLY VALID JSON (no markdown, no explanation):
+OUTPUT ONLY JSON:
 {{
-    "product_name": "<exact name from package>",
-    "brand": "<brand name>",
-    "product_type": "<food/cosmetics/electronics/household/service>",
-    "score": <number 0-100>,
-    "verdict": "<BUY/CAUTION/AVOID>",
-    "violations": [
-        {{"law": <1-20>, "name": "<law name>", "points": <negative number>, "reason": "<specific evidence from product>"}}
-    ],
-    "ingredients": ["<ingredient1>", "<ingredient2>", "..."],
-    "harmful_ingredients": ["<list only the harmful ones found>"],
-    "main_issue": "<one sentence summary of biggest problem, or 'No significant issues found'>",
-    "better_option": {{"name": "<specific alternative product>", "store": "<from store list>", "why": "<brief reason>"}},
-    "tip": "<one actionable tip>"
-}}
+    "product_name": "<name or 'Unreadable'>",
+    "brand": "<brand or 'Unknown'>",
+    "product_type": "<food/cosmetics/electronics/household/service/unknown>",
+    "readable": <true/false>,
+    "score": <0-100>,
+    "verdict": "<BUY/CAUTION/AVOID/UNCLEAR>",
+    "violations": [{{"law": <1-20>, "name": "<name>", "points": <negative>, "reason": "<evidence>"}}],
+    "ingredients": ["<ingredient1>", "..."],
+    "harmful_found": ["<harmful ingredients>"],
+    "main_issue": "<biggest problem>",
+    "better_option": {{"name": "<alternative>", "store": "<store>", "why": "<reason>"}},
+    "tip": "<advice>"
+}}"""
 
-Be thorough. Check EVERY ingredient against the harmful list. Apply ALL relevant laws."""
-
-def analyze(images, loc, progress):
+def analyze(images, loc, progress, barcode_info=None):
     progress(0.2, "🔍 Reading product...")
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # LOWER TEMPERATURE = MORE CONSISTENT
     model = genai.GenerativeModel(
         "gemini-2.0-flash-exp",
-        generation_config={
-            "temperature": 0.1,  # Very low for consistency
-            "max_output_tokens": 4000
-        }
+        generation_config={"temperature": 0.1, "max_output_tokens": 4000}
     )
     
     pil = [Image.open(img) for img in images]
     for img in images: img.seek(0)
     
-    progress(0.5, "⚖️ Analyzing ingredients & checking laws...")
+    progress(0.5, "⚖️ Analyzing...")
+    
+    barcode_text = ""
+    if barcode_info and barcode_info.get('found'):
+        barcode_text = f"BARCODE: {barcode_info.get('name', '')}, Brand: {barcode_info.get('brand', '')}, Ingredients: {barcode_info.get('ingredients', '')}"
+    
     prompt = PROMPT.format(
         location=f"{loc.get('city', 'Unknown')}, {loc.get('country', 'Unknown')}",
-        retailers=", ".join(loc.get('retailers', ['Local store']))
+        retailers=", ".join(loc.get('retailers', ['Local store'])),
+        barcode_info=barcode_text
     )
     
-    progress(0.8, "📊 Calculating score...")
+    progress(0.8, "📊 Scoring...")
     resp = model.generate_content([prompt] + pil)
     text = resp.text.strip()
     
-    # Extract JSON
     result = None
     for pat in [r'```json\s*(.*?)\s*```', r'```\s*(.*?)\s*```', r'\{[\s\S]*\}']:
         m = re.search(pat, text, re.DOTALL)
         if m:
             try:
-                json_str = m.group(1) if 'group' in dir(m) and m.lastindex else m.group(0)
+                json_str = m.group(1) if m.lastindex else m.group(0)
                 result = json.loads(json_str)
                 break
             except:
@@ -542,23 +709,31 @@ def analyze(images, loc, progress):
         try:
             result = json.loads(text)
         except:
-            raise ValueError("Failed to parse AI response")
+            return {
+                "product_name": "Unreadable", "brand": "Unknown", "product_type": "unknown",
+                "readable": False, "score": 0, "verdict": "UNCLEAR", "violations": [],
+                "ingredients": [], "harmful_found": [],
+                "main_issue": "Could not read product - please take clearer photo",
+                "better_option": {}, "tip": "Ensure product name and ingredients are visible"
+            }
     
-    # VERIFY AND FIX SCORE
-    violations = result.get('violations', [])
-    total_deductions = sum(abs(v.get('points', 0)) for v in violations)
-    correct_score = max(0, min(100, 100 - total_deductions))
-    
-    # Fix score if AI made mistake
-    result['score'] = correct_score
-    
-    # Fix verdict based on score
-    if correct_score >= 80:
-        result['verdict'] = 'BUY'
-    elif correct_score >= 50:
-        result['verdict'] = 'CAUTION'
+    # Validation
+    if not result.get('readable', True) or result.get('product_name', '').lower() in ['unreadable', 'unknown', '']:
+        result['score'] = 0
+        result['verdict'] = 'UNCLEAR'
+        result['main_issue'] = "Image unclear - please retake"
     else:
-        result['verdict'] = 'AVOID'
+        violations = result.get('violations', [])
+        total = sum(abs(v.get('points', 0)) for v in violations)
+        correct_score = max(0, min(100, 100 - total))
+        
+        if correct_score == 100 and len(result.get('ingredients', [])) > 0:
+            has_issues = any(categorize_ingredient(i) in ['harmful', 'caution'] for i in result.get('ingredients', []))
+            if has_issues:
+                correct_score = 85
+        
+        result['score'] = correct_score
+        result['verdict'] = 'BUY' if correct_score >= 80 else ('CAUTION' if correct_score >= 50 else 'AVOID')
     
     progress(1.0, "✅ Done!")
     return result
@@ -574,7 +749,7 @@ def score_color(s):
 def thumb_b64(data):
     return base64.b64encode(data).decode() if data else None
 # =============================================================================
-# CSS - LIGHT MODE
+# CSS
 # =============================================================================
 CSS = """
 <style>
@@ -591,13 +766,14 @@ p, span, div, label { color: #334155; }
 .verdict-buy { background: linear-gradient(135deg, #22c55e, #16a34a); }
 .verdict-caution { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .verdict-avoid { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.verdict-unclear { background: linear-gradient(135deg, #6b7280, #4b5563); }
 .verdict-card { border-radius: 24px; padding: 1.5rem; text-align: center; color: white; margin: 1rem 0; }
 .verdict-icon { font-size: 4rem; line-height: 1; }
 .verdict-text { font-size: 1.5rem; font-weight: 900; margin: 0.5rem 0; }
 .verdict-score { font-size: 3rem; font-weight: 900; }
 
 .stat-row { display: flex; gap: 0.5rem; margin: 0.75rem 0; }
-.stat-box { flex: 1; background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.75rem; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.stat-box { flex: 1; background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.75rem; text-align: center; }
 .stat-val { font-size: 1.5rem; font-weight: 800; color: #3b82f6; }
 .stat-lbl { font-size: 0.65rem; color: #64748b; text-transform: uppercase; }
 
@@ -612,44 +788,36 @@ p, span, div, label { color: #334155; }
 .ing-safe { background: #bbf7d0; color: #16a34a; }
 
 .violation { background: #fef2f2; border-left: 4px solid #ef4444; padding: 0.75rem; margin: 0.3rem 0; border-radius: 0 10px 10px 0; }
-.violation-title { color: #dc2626; font-weight: 700; font-size: 0.9rem; }
-.violation-reason { color: #64748b; font-size: 0.8rem; margin-top: 0.25rem; }
-
 .alt-card { background: #f0fdf4; border: 1px solid #86efac; border-radius: 12px; padding: 0.75rem; margin: 0.5rem 0; }
-.alt-name { color: #16a34a; font-weight: 700; }
 
 .history-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: white; border: 1px solid #e2e8f0; border-radius: 12px; margin: 0.3rem 0; }
-.history-thumb { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+.history-thumb { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; background: #f1f5f9; }
 .history-score { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: white; font-size: 0.8rem; }
 
-/* ALL SHARE BUTTONS */
-.share-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0; }
-.share-btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.8rem; border-radius: 8px; color: white; font-weight: 600; font-size: 0.75rem; text-decoration: none; }
+.share-section { background: #f1f5f9; border-radius: 16px; padding: 1rem; margin: 1rem 0; }
+.share-preview { max-width: 200px; border-radius: 12px; margin: 0.5rem auto; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.share-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 1rem; }
+.share-btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.6rem 1rem; border-radius: 8px; color: white; font-weight: 600; font-size: 0.8rem; text-decoration: none; }
 .share-twitter { background: #1DA1F2; }
 .share-facebook { background: #4267B2; }
 .share-whatsapp { background: #25D366; }
-.share-telegram { background: #0088cc; }
-.share-instagram { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); }
-.share-tiktok { background: #000000; }
+.share-download { background: #6366f1; }
+.share-story { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743); }
 
 .progress-box { background: white; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; text-align: center; }
 .progress-bar { height: 6px; background: #e2e8f0; border-radius: 3px; margin: 1rem 0; overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); border-radius: 3px; transition: width 0.3s; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); transition: width 0.3s; }
 
 .stButton > button { background: linear-gradient(135deg, #3b82f6, #2563eb) !important; color: white !important; font-weight: 700 !important; border: none !important; border-radius: 12px !important; }
 .stTabs [data-baseweb="tab-list"] { gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 12px; }
 .stTabs [data-baseweb="tab"] { background: transparent; color: #64748b; border-radius: 8px; font-weight: 600; }
 .stTabs [aria-selected="true"] { background: white !important; color: #1e293b !important; }
 
-.loc-badge { background: #dbeafe; color: #2563eb; padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+.loc-badge { background: #dbeafe; color: #2563eb; padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
 .streak-badge { background: linear-gradient(135deg, #f59e0b, #ef4444); color: white; padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
-
 .admin-card { background: #1e293b; color: white; border-radius: 12px; padding: 1rem; margin: 0.5rem 0; }
 .admin-stat { font-size: 2rem; font-weight: 800; color: #60a5fa; }
-
 .tip-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 0.75rem; margin: 0.5rem 0; }
-
-.location-input { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem; margin: 0.3rem 0; }
 
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
@@ -661,18 +829,16 @@ p, span, div, label { color: #334155; }
 # =============================================================================
 st.markdown(CSS, unsafe_allow_html=True)
 
-# Session state
 if 'result' not in st.session_state: st.session_state.result = None
 if 'sid' not in st.session_state: st.session_state.sid = None
 if 'imgs' not in st.session_state: st.session_state.imgs = []
 if 'admin' not in st.session_state: st.session_state.admin = False
+if 'barcode_data' not in st.session_state: st.session_state.barcode_data = None
+if 'share_img' not in st.session_state: st.session_state.share_img = None
+if 'share_story' not in st.session_state: st.session_state.share_story = None
 if 'loc' not in st.session_state:
-    # Try saved location first, then IP
     saved = get_saved_location()
-    if saved:
-        st.session_state.loc = saved
-    else:
-        st.session_state.loc = get_location_from_ip()
+    st.session_state.loc = saved if saved else get_location_from_ip()
 
 loc = st.session_state.loc
 stats = get_stats()
@@ -701,43 +867,50 @@ with tabs[0]:
         r = st.session_state.result
         score = r.get('score', 0)
         verdict = r.get('verdict', 'CAUTION')
+        product_name = r.get('product_name', 'Unknown')
+        brand = r.get('brand', '')
+        main_issue = r.get('main_issue', '')
         
-        if st.button("🔄 Scan Another Product"):
+        if st.button("🔄 Scan Another"):
             st.session_state.result = None
             st.session_state.imgs = []
+            st.session_state.barcode_data = None
+            st.session_state.share_img = None
+            st.session_state.share_story = None
             st.rerun()
         
-        # Personal alerts
+        if verdict == 'UNCLEAR':
+            st.warning("⚠️ Could not read product. Please take a clearer photo.")
+        
+        # Alerts
         ingredients = r.get('ingredients', [])
         alerts = check_alerts(ingredients, get_allergies(), get_profiles())
         for a in alerts:
             icon = "🚨" if a['type'] == 'allergy' else a.get('icon', '⚠️')
             cls = 'alert-danger' if a['type'] == 'allergy' else 'alert-warning'
-            st.markdown(f"<div class='{cls}'>{icon} <strong>{a['name']}</strong>: contains {a['trigger']}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='{cls}'>{icon} <strong>{a['name']}</strong>: {a['trigger']}</div>", unsafe_allow_html=True)
         
         # Verdict card
         verdict_class = f"verdict-{verdict.lower()}"
-        verdict_icon = {"BUY": "✓", "CAUTION": "⚠", "AVOID": "✗"}[verdict]
-        verdict_text = {"BUY": "GOOD TO BUY", "CAUTION": "USE CAUTION", "AVOID": "AVOID THIS"}[verdict]
+        verdict_icons = {"BUY": "✓", "CAUTION": "⚠", "AVOID": "✗", "UNCLEAR": "?"}
+        verdict_texts = {"BUY": "GOOD TO BUY", "CAUTION": "USE CAUTION", "AVOID": "AVOID THIS", "UNCLEAR": "UNCLEAR"}
         
         st.markdown(f'''
         <div class="verdict-card {verdict_class}">
-            <div class="verdict-icon">{verdict_icon}</div>
-            <div class="verdict-text">{verdict_text}</div>
+            <div class="verdict-icon">{verdict_icons.get(verdict, "?")}</div>
+            <div class="verdict-text">{verdict_texts.get(verdict, "UNKNOWN")}</div>
             <div class="verdict-score">{score}<span style="font-size:1.2rem;">/100</span></div>
         </div>
         ''', unsafe_allow_html=True)
         
-        st.markdown(f"### {r.get('product_name', 'Unknown')}")
-        st.caption(f"{r.get('brand', '')} • {r.get('product_type', '')}")
+        st.markdown(f"### {product_name}")
+        st.caption(f"{brand} • {r.get('product_type', '')}")
         
-        # Main issue
-        main_issue = r.get('main_issue', '')
-        if main_issue and 'no significant' not in main_issue.lower() and 'no major' not in main_issue.lower():
-            st.markdown(f"<div class='issue-box'>⚠️ <strong>Main Issue:</strong> {main_issue}</div>", unsafe_allow_html=True)
+        if main_issue and 'no significant' not in main_issue.lower():
+            st.markdown(f"<div class='issue-box'>⚠️ {main_issue}</div>", unsafe_allow_html=True)
         
-        # Ingredient summary
-        harmful_list = r.get('harmful_ingredients', [])
+        # Ingredients
+        harmful_list = r.get('harmful_found', [])
         if ingredients:
             harmful = len(harmful_list) if harmful_list else sum(1 for i in ingredients if categorize_ingredient(i) == 'harmful')
             caution = sum(1 for i in ingredients if categorize_ingredient(i) == 'caution')
@@ -751,9 +924,8 @@ with tabs[0]:
             </div>
             ''', unsafe_allow_html=True)
             
-            # Show harmful ingredients specifically
             if harmful_list:
-                st.markdown(f"**⚠️ Harmful found:** {', '.join(harmful_list)}")
+                st.markdown(f"**⚠️ Harmful:** {', '.join(harmful_list)}")
             
             with st.expander("View all ingredients"):
                 for ing in ingredients:
@@ -764,58 +936,78 @@ with tabs[0]:
         # Violations
         violations = r.get('violations', [])
         if violations:
-            with st.expander(f"⚖️ {len(violations)} Law Violations"):
-                total = sum(abs(v.get('points', 0)) for v in violations)
-                st.code(f"100 - {total} = {score}")
-                
+            with st.expander(f"⚖️ {len(violations)} Violations"):
                 for v in violations:
-                    st.markdown(f'''
-                    <div class="violation">
-                        <div class="violation-title">Law {v.get('law', '?')}: {v.get('name', '?')} ({v.get('points', 0)})</div>
-                        <div class="violation-reason">{v.get('reason', '')}</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    st.markdown(f"**Law {v.get('law')}: {v.get('name')}** ({v.get('points')}) - {v.get('reason', '')}")
         
         # Better option
         better = r.get('better_option', {})
-        if better and better.get('name') and verdict != 'BUY':
-            st.markdown(f'''
-            <div class="alt-card">
-                <div class="alt-name">💡 Try: {better.get('name', '')}</div>
-                <div style="color:#64748b;font-size:0.85rem;">{better.get('why', '')}</div>
-                <div style="margin-top:0.5rem;"><span class="loc-badge">📍 {better.get('store', '')}</span></div>
-            </div>
-            ''', unsafe_allow_html=True)
+        if better and better.get('name') and verdict not in ['BUY', 'UNCLEAR']:
+            st.markdown(f"<div class='alt-card'><strong>💡 Try:</strong> {better.get('name')} at {better.get('store', '')}</div>", unsafe_allow_html=True)
         
-        # Tip
         if r.get('tip'):
             st.markdown(f"<div class='tip-box'>💡 {r['tip']}</div>", unsafe_allow_html=True)
         
-        st.markdown("---")
+        # =================================================================
+        # SHARE SECTION - WITH GENERATED IMAGES
+        # =================================================================
+        if verdict != 'UNCLEAR':
+            st.markdown("---")
+            st.markdown("### 📤 Share Your Discovery")
+            
+            # Generate share images if not already
+            if st.session_state.share_img is None:
+                st.session_state.share_img = create_share_image(product_name, brand, score, verdict, main_issue)
+                st.session_state.share_story = create_story_image(product_name, brand, score, verdict, main_issue)
+            
+            share_img = st.session_state.share_img
+            share_story = st.session_state.share_story
+            
+            st.markdown("<div class='share-section'>", unsafe_allow_html=True)
+            
+            # Preview
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**📱 Post (1:1)**")
+                st.image(share_img, width=150)
+                b64_post = image_to_base64(share_img)
+                st.markdown(f'''<a href="data:image/png;base64,{b64_post}" download="honestworld_{score}.png" 
+                    style="display:inline-block;padding:8px 16px;background:#6366f1;color:white;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600;">
+                    ⬇️ Download Post</a>''', unsafe_allow_html=True)
+            
+            with col2:
+                st.markdown("**📱 Story (9:16)**")
+                st.image(share_story, width=100)
+                b64_story = image_to_base64(share_story)
+                st.markdown(f'''<a href="data:image/png;base64,{b64_story}" download="honestworld_story_{score}.png" 
+                    style="display:inline-block;padding:8px 16px;background:linear-gradient(45deg,#f09433,#dc2743);color:white;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600;">
+                    ⬇️ Download Story</a>''', unsafe_allow_html=True)
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Quick share links
+            share_text = f"🌍 I scanned {product_name} - scored {score}/100! Check your products at HonestWorld #HonestWorld"
+            encoded = urllib.parse.quote(share_text)
+            
+            st.markdown("**Quick Share:**")
+            st.markdown(f'''
+            <div class="share-buttons">
+                <a href="https://twitter.com/intent/tweet?text={encoded}" target="_blank" class="share-btn share-twitter">🐦 Tweet</a>
+                <a href="https://wa.me/?text={encoded}" target="_blank" class="share-btn share-whatsapp">💬 WhatsApp</a>
+                <a href="https://www.facebook.com/sharer/sharer.php?quote={encoded}" target="_blank" class="share-btn share-facebook">📘 Facebook</a>
+            </div>
+            <p style="font-size:0.75rem;color:#64748b;text-align:center;margin-top:0.5rem;">
+                📸 For Instagram/TikTok: Download image above → Open app → Create post → Upload image
+            </p>
+            ''', unsafe_allow_html=True)
         
-        # ALL 6 SHARE BUTTONS
-        st.markdown("**📤 Share your discovery:**")
-        share_text = f"🌍 Scanned {r.get('product_name', 'product')} with HonestWorld - {score}/100 ({verdict})! #HonestWorld #ConsumerAwareness"
-        encoded = urllib.parse.quote(share_text)
-        
-        st.markdown(f'''
-        <div class="share-row">
-            <a href="https://twitter.com/intent/tweet?text={encoded}" target="_blank" class="share-btn share-twitter">🐦 Twitter</a>
-            <a href="https://www.facebook.com/sharer/sharer.php?quote={encoded}" target="_blank" class="share-btn share-facebook">📘 Facebook</a>
-            <a href="https://wa.me/?text={encoded}" target="_blank" class="share-btn share-whatsapp">💬 WhatsApp</a>
-            <a href="https://t.me/share/url?text={encoded}" target="_blank" class="share-btn share-telegram">✈️ Telegram</a>
-            <a href="https://www.instagram.com/" target="_blank" class="share-btn share-instagram">📸 Instagram</a>
-            <a href="https://www.tiktok.com/" target="_blank" class="share-btn share-tiktok">🎵 TikTok</a>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        st.caption(f"Scan ID: {st.session_state.sid}")
+        st.caption(f"ID: {st.session_state.sid}")
     
     else:
         # Stats
         st.markdown(f'''
         <div class="stat-row">
-            <div class="stat-box"><div class="stat-val">{stats['scans']}</div><div class="stat-lbl">My Scans</div></div>
+            <div class="stat-box"><div class="stat-val">{stats['scans']}</div><div class="stat-lbl">Scans</div></div>
             <div class="stat-box"><div class="stat-val">{stats['avoided']}</div><div class="stat-lbl">Avoided</div></div>
             <div class="stat-box"><div class="stat-val">🔥 {stats['streak']}</div><div class="stat-lbl">Streak</div></div>
         </div>
@@ -824,6 +1016,8 @@ with tabs[0]:
         mode = st.radio("", ["📷 Camera", "📁 Upload", "📊 Barcode"], horizontal=True, label_visibility="collapsed")
         
         imgs = []
+        barcode_info = None
+        
         if mode == "📷 Camera":
             if st.session_state.imgs:
                 cols = st.columns(min(4, len(st.session_state.imgs) + 1))
@@ -852,12 +1046,20 @@ with tabs[0]:
             if up: imgs = up[:3]
         
         else:
-            st.info("📊 Point camera at barcode")
+            st.info("📊 Take clear photo of barcode")
             bc = st.camera_input("", label_visibility="collapsed", key="bc")
-            if bc: imgs = [bc]
+            if bc:
+                imgs = [bc]
+                barcode = try_decode_barcode(bc)
+                if barcode:
+                    st.success(f"✅ Barcode: {barcode}")
+                    barcode_info = lookup_barcode(barcode)
+                    if barcode_info.get('found'):
+                        st.markdown(f"📦 **{barcode_info.get('name')}** by {barcode_info.get('brand')}")
+                    st.session_state.barcode_data = barcode_info
         
         if imgs:
-            if st.button("🔍 ANALYZE PRODUCT", type="primary", use_container_width=True):
+            if st.button("🔍 ANALYZE", type="primary", use_container_width=True):
                 prog = st.empty()
                 def update(p, t):
                     prog.markdown(f"<div class='progress-box'>{t}<div class='progress-bar'><div class='progress-fill' style='width:{p*100}%;'></div></div></div>", unsafe_allow_html=True)
@@ -874,20 +1076,23 @@ with tabs[0]:
                     except: pass
                     
                     for i in imgs: i.seek(0)
-                    result = analyze(imgs, loc, update)
                     
-                    # Save locally
-                    sid = save_scan(result, thumb)
+                    bc_info = st.session_state.get('barcode_data')
+                    result = analyze(imgs, loc, update, bc_info)
                     
-                    # Save to cloud
-                    city = loc.get('city', 'Unknown')
-                    country = loc.get('country', 'Unknown')
-                    cloud_log_scan(result, city, country, user_id)
-                    cloud_save_product(result)
+                    if result.get('verdict') != 'UNCLEAR':
+                        sid = save_scan(result, user_id, thumb)
+                        cloud_log_scan(result, loc.get('city', ''), loc.get('country', ''), user_id)
+                        cloud_save_product(result)
+                    else:
+                        sid = "UNCLEAR"
                     
                     st.session_state.result = result
                     st.session_state.sid = sid
                     st.session_state.imgs = []
+                    st.session_state.barcode_data = None
+                    st.session_state.share_img = None
+                    st.session_state.share_story = None
                     prog.empty()
                     st.rerun()
                 except Exception as e:
@@ -898,13 +1103,15 @@ with tabs[0]:
 # TAB: SEARCH
 # =============================================================================
 with tabs[1]:
-    st.markdown("### 🔎 Search Products")
+    st.markdown("### 🔎 Search")
     
     if supa_ok():
         cs = cloud_get_stats()
-        st.markdown(f"<div style='text-align:center;color:#64748b;margin-bottom:1rem;'>{cs.get('products', 0)} products in database</div>", unsafe_allow_html=True)
+        st.caption(f"{cs.get('products', 0)} products in database")
+    else:
+        st.warning("⚠️ Database not connected")
     
-    q = st.text_input("", placeholder="Search product name...", label_visibility="collapsed")
+    q = st.text_input("", placeholder="Search...", label_visibility="collapsed")
     
     if q and len(q) >= 2:
         results = cloud_search(q) if supa_ok() else []
@@ -914,47 +1121,46 @@ with tabs[1]:
                 color = score_color(score)
                 st.markdown(f'''
                 <div class="history-row">
-                    <div class="history-thumb">📦</div>
-                    <div style="flex:1;">
-                        <div style="font-weight:600;">{p.get('product_name', '?')}</div>
-                        <div style="font-size:0.75rem;color:#64748b;">{p.get('brand', '')} • {p.get('scan_count', 0)}x scanned</div>
-                    </div>
+                    <div style="flex:1;"><strong>{p.get('product_name', '?')}</strong><br/>
+                    <span style="font-size:0.75rem;color:#64748b;">{p.get('brand', '')} • {p.get('scan_count', 0)}x</span></div>
                     <div class="history-score" style="background:{color};">{score}</div>
                 </div>
                 ''', unsafe_allow_html=True)
         else:
-            st.info("Not found. Scan it to add!")
-    else:
-        st.caption("Search the global database")
+            st.info("Not found. Scan it!")
 
 # =============================================================================
 # TAB: HISTORY
 # =============================================================================
 with tabs[2]:
     st.markdown("### 📜 My History")
-    history = get_history(20)
+    
+    history = get_history(user_id, 20)
     if not history:
         st.info("No scans yet")
     else:
         for h in history:
             score = h['score']
             color = score_color(score)
-            vi = {"BUY": "✓", "CAUTION": "⚠", "AVOID": "✗"}.get(h['verdict'], "?")
-            th = f"<img src='data:image/jpeg;base64,{thumb_b64(h['thumb'])}' class='history-thumb'/>" if h.get('thumb') else "<div class='history-thumb'>📦</div>"
-            st.markdown(f'''
-            <div class="history-row">
-                {th}
-                <div style="flex:1;"><div style="font-weight:600;">{h['product']}</div><div style="font-size:0.75rem;color:#64748b;">{h['brand']}</div></div>
-                <span style="color:{color};font-weight:700;margin-right:0.5rem;">{vi}</span>
-                <div class="history-score" style="background:{color};">{score}</div>
-            </div>
-            ''', unsafe_allow_html=True)
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(f'''
+                <div class="history-row">
+                    <div style="flex:1;"><strong>{h['product']}</strong><br/>
+                    <span style="font-size:0.75rem;color:#64748b;">{h['brand']}</span></div>
+                    <div class="history-score" style="background:{color};">{score}</div>
+                </div>
+                ''', unsafe_allow_html=True)
+            with col2:
+                if st.button("🗑️", key=f"del_{h['db_id']}"):
+                    delete_scan(h['db_id'], user_id)
+                    st.rerun()
 
 # =============================================================================
 # TAB: PROFILE
 # =============================================================================
 with tabs[3]:
-    st.markdown("### 👤 My Profile")
+    st.markdown("### 👤 Profile")
     
     st.markdown(f'''
     <div class="stat-row">
@@ -964,32 +1170,23 @@ with tabs[3]:
     </div>
     ''', unsafe_allow_html=True)
     
-    if stats['best'] > 0:
-        st.caption(f"🏆 Best streak: {stats['best']} days")
-    
     st.markdown("---")
-    
-    # LOCATION SETTINGS
-    st.markdown("**📍 My Location**")
-    st.caption("Set your city for local store recommendations")
-    
+    st.markdown("**📍 Location**")
     col1, col2 = st.columns(2)
     with col1:
-        new_city = st.text_input("City", value=loc.get('city', ''), key="city_input")
+        new_city = st.text_input("City", value=loc.get('city', ''))
     with col2:
-        new_country = st.text_input("Country", value=loc.get('country', ''), key="country_input")
+        new_country = st.text_input("Country", value=loc.get('country', ''))
     
-    if st.button("📍 Update Location"):
+    if st.button("📍 Update"):
         if new_city:
             save_location(new_city, new_country)
-            st.session_state.loc = {'city': new_city, 'country': new_country, 'retailers': RETAILERS.get('OTHER', [])}
-            st.success(f"✅ Location set to {new_city}, {new_country}")
+            st.session_state.loc = {'city': new_city, 'country': new_country, 'retailers': RETAILERS.get('AU', RETAILERS['OTHER'])}
+            st.success("✅ Saved!")
             st.rerun()
     
     st.markdown("---")
-    
-    # Allergens
-    st.markdown("**🛡️ My Allergens**")
+    st.markdown("**🛡️ Allergens**")
     curr_a = get_allergies()
     sel_a = []
     cols = st.columns(3)
@@ -999,89 +1196,46 @@ with tabs[3]:
                 sel_a.append(a)
     
     st.markdown("---")
-    
-    # Profiles
-    st.markdown("**👨‍👩‍👧 Safety Profiles**")
+    st.markdown("**👨‍👩‍👧 Profiles**")
     curr_p = get_profiles()
     sel_p = []
     for k, v in PROFILES.items():
         if st.checkbox(f"{v['icon']} {v['name']}", value=k in curr_p, key=f"p_{k}"):
             sel_p.append(k)
     
-    if st.button("💾 Save Settings", type="primary"):
+    if st.button("💾 Save", type="primary"):
         save_allergies(sel_a)
         save_profiles(sel_p)
         st.success("✅ Saved!")
     
     st.markdown("---")
-    
-    # Admin login
     with st.expander("🔐 Admin"):
-        pwd = st.text_input("Password", type="password", key="apwd")
-        if st.button("Login", key="alogin"):
+        pwd = st.text_input("Password", type="password")
+        if st.button("Login"):
             if hashlib.sha256(pwd.encode()).hexdigest() == ADMIN_HASH:
                 st.session_state.admin = True
-                st.success("✅ Admin access granted!")
                 st.rerun()
-            else:
-                st.error("Wrong password")
 
 # =============================================================================
 # TAB: ADMIN
 # =============================================================================
 if st.session_state.admin and len(tabs) > 4:
     with tabs[4]:
-        st.markdown("### 📊 Admin Dashboard")
+        st.markdown("### 📊 Admin")
         
-        if st.button("🚪 Logout"):
+        if st.button("Logout"):
             st.session_state.admin = False
             st.rerun()
         
-        # Connection status
+        st.markdown(f"**Supabase:** {'✅ Connected' if supa_ok() else '❌ Not connected'}")
+        st.markdown(f"**Key format:** `{SUPABASE_KEY[:20]}...`" if SUPABASE_KEY else "No key")
+        
         if supa_ok():
-            st.success("✅ Supabase connected")
-            
             cs = cloud_get_stats()
-            st.markdown(f'''
-            <div class="stat-row">
-                <div class="admin-card"><div class="admin-stat">{cs.get('scans', 0)}</div><div style="color:#94a3b8;">Total Scans</div></div>
-                <div class="admin-card"><div class="admin-stat">{cs.get('products', 0)}</div><div style="color:#94a3b8;">Products</div></div>
-            </div>
-            ''', unsafe_allow_html=True)
+            st.markdown(f"**Cloud:** {cs.get('scans', 0)} scans, {cs.get('products', 0)} products")
             
-            st.markdown("---")
-            st.markdown("**📈 Recent Scans**")
-            recent = cloud_get_recent_scans(30)
-            if recent:
-                for s in recent[:20]:
-                    color = score_color(s.get('score', 0))
-                    st.markdown(f'''
-                    <div class="history-row">
-                        <div style="flex:1;">
-                            <div style="font-weight:600;">{s.get('product_name', '?')}</div>
-                            <div style="font-size:0.7rem;color:#64748b;">{s.get('brand', '')} • {s.get('city', '?')}, {s.get('country', '?')}</div>
-                        </div>
-                        <div class="history-score" style="background:{color};">{s.get('score', 0)}</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
-            else:
-                st.info("No scans recorded yet")
-            
-            st.markdown("---")
-            st.markdown("**🏆 Top Products**")
-            top = cloud_get_top_products(15)
-            if top:
-                for i, p in enumerate(top):
-                    st.markdown(f"{i+1}. **{p.get('product_name', '?')}** - {p.get('scan_count', 0)} scans, avg {int(p.get('avg_score', 0))}/100")
-        else:
-            st.error("❌ Supabase not connected")
-            st.markdown(f"""
-            **Debug info:**
-            - SUPABASE_URL: {'Set ✅' if SUPABASE_URL else 'Missing ❌'}
-            - SUPABASE_KEY: {'Set ✅' if SUPABASE_KEY else 'Missing ❌'}
-            
-            Add these to Streamlit secrets!
-            """)
+            st.markdown("**Recent:**")
+            for s in cloud_get_recent_scans(10):
+                st.markdown(f"• {s.get('product_name')} ({s.get('score')}) - {s.get('city')}")
 
-# Footer
-st.markdown(f"<div style='text-align:center;color:#94a3b8;font-size:0.7rem;padding:1rem;'>🌍 HonestWorld v16 • 📍 {loc.get('city', '?')}, {loc.get('country', '?')}</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center;color:#94a3b8;font-size:0.7rem;padding:1rem;'>🌍 v18 • {loc.get('city', '?')}</div>", unsafe_allow_html=True)
