@@ -1479,60 +1479,46 @@ def main():
 
 
 def render_scan_interface():
-    """Clean scan interface"""
-    input_method = st.radio("", ["📷 Camera", "📁 Upload", "📊 Barcode"], horizontal=True, label_visibility="collapsed")
-    images = []
-    
-    if input_method == "📷 Camera":
-        st.caption("📸 Point at product label (front + back for best results)")
-        cam_img = st.camera_input("", label_visibility="collapsed")
-        if cam_img:
-            images = [cam_img]
-            st.success("✅ Photo ready")
-            if st.checkbox("+ Add back label"):
-                cam2 = st.camera_input("Back", label_visibility="collapsed", key="cam2")
-                if cam2: images.append(cam2)
-    
-    elif input_method == "📁 Upload":
-        uploaded = st.file_uploader("", type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=True, label_visibility="collapsed")
-        if uploaded:
-            images = uploaded[:3]
-            st.success(f"✅ {len(images)} image(s)")
-    
     else:  # Barcode
-        st.markdown("**📊 Perfect Barcode Scanner**")
-        st.caption("Can't scan folded label? Barcode fetches all data automatically!")
-        barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
-        
-        if barcode_img:
-            with st.spinner("Reading barcode..."):
-                barcode_num = try_decode_barcode_pyzbar(barcode_img)
-                if not barcode_num:
-                    barcode_num = ai_read_barcode(barcode_img)
+    st.markdown("**📊 Perfect Barcode Scanner**")
+    st.caption("Can't scan folded label? Barcode fetches all data automatically!")
+    barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
+    
+    if barcode_img:
+        with st.spinner("Reading barcode..."):
+            barcode_num = try_decode_barcode_pyzbar(barcode_img)
+            if not barcode_num:
+                barcode_num = ai_read_barcode(barcode_img)
+            
+            if barcode_num:
+                st.info(f"📊 **{barcode_num}**")
                 
-                if barcode_num:
-                    st.info(f"📊 **{barcode_num}**")
+                progress_ph = st.empty()
+                def update_prog(pct, msg):
+                    progress_ph.markdown(f"<div class='progress-box'><div>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
+                
+                barcode_info = smart_barcode_lookup(barcode_num, update_prog)
+                progress_ph.empty()
+                
+                if barcode_info.get('found'):
+                    st.success(f"✅ **{barcode_info.get('name', '')}**")
+                    if barcode_info.get('brand'):
+                        st.caption(f"by {barcode_info.get('brand')} • {barcode_info.get('source', '')}")
                     
-                    progress_ph = st.empty()
-                    def update_prog(pct, msg):
-                        progress_ph.markdown(f"<div class='progress-box'><div>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
+                    # STORE for analysis
+                    st.session_state.barcode_info = barcode_info
                     
-                    barcode_info = smart_barcode_lookup(barcode_num, update_prog)
-                    progress_ph.empty()
-                    
-                    if barcode_info.get('found'):
-                        st.success(f"✅ **{barcode_info.get('name', '')}**")
-                        if barcode_info.get('brand'):
-                            st.caption(f"by {barcode_info.get('brand')} • {barcode_info.get('source', '')}")
-                        st.session_state.barcode_info = barcode_info
-                        images = [barcode_img]
-                    else:
-                        st.warning("Not found in databases. Use photo scan instead.")
+                    # Set flag to analyze from barcode data only
+                    st.session_state.barcode_only = True
+                    images = [barcode_img]  # Just for the flow, won't be used for OCR
                 else:
-                    st.error("Could not read barcode. Try a clearer image.")
+                    st.warning("Not found in databases. Use photo scan instead.")
+            else:
+                st.error("Could not read barcode. Try a clearer image.")
     
     # Analyze button
-    if images:
+    # Analyze button - FIXED
+    if images or st.session_state.get('barcode_info'):  # Allow analysis if barcode found
         if st.button("🔍 ANALYZE", use_container_width=True, type="primary"):
             progress_ph = st.empty()
             def update_prog(pct, msg):
@@ -1544,20 +1530,30 @@ def render_scan_interface():
             user_allergies = get_allergies()
             bi = st.session_state.get('barcode_info')
             
-            result = analyze_product(images, st.session_state.loc, update_prog, bi, user_profiles, user_allergies)
+            # Check if barcode-only mode
+            if st.session_state.get('barcode_only') and bi and bi.get('found'):
+                # Analyze from barcode data directly
+                result = analyze_from_barcode_data(bi, st.session_state.loc, update_prog, user_profiles, user_allergies)
+                st.session_state.barcode_only = False  # Reset
+            else:
+                # Normal image analysis
+                result = analyze_product(images, st.session_state.loc, update_prog, bi, user_profiles, user_allergies)
+            
             progress_ph.empty()
             
             if result.get('readable', True) and result.get('score', 0) > 0:
-                # Thumbnail
-                thumb = None
+                # Thumbnail - FIXED initialization
+                thumb = None  # Always initialize
                 try:
-                    images[0].seek(0)
-                    img = Image.open(images[0])
-                    img.thumbnail((100, 100))
-                    buf = BytesIO()
-                    img.save(buf, format='JPEG', quality=60)
-                    thumb = buf.getvalue()
-                except: pass
+                    if images and len(images) > 0:
+                        images[0].seek(0)
+                        img = Image.open(images[0])
+                        img.thumbnail((100, 100))
+                        buf = BytesIO()
+                        img.save(buf, format='JPEG', quality=60)
+                        thumb = buf.getvalue()
+                except: 
+                    pass  # thumb stays None
                 
                 scan_id = save_scan(result, user_id, thumb)
                 cloud_log_scan(result, st.session_state.loc.get('city', ''), st.session_state.loc.get('country', ''), user_id)
@@ -1566,10 +1562,140 @@ def render_scan_interface():
                 st.session_state.scan_id = scan_id
                 st.session_state.show_result = True
                 st.session_state.barcode_info = None
+                st.session_state.barcode_only = False
                 st.rerun()
             else:
                 st.error("❌ Could not analyze. Try a clearer photo.")
 
+
+def analyze_from_barcode_data(barcode_info, location, progress_callback, user_profiles=None, user_allergies=None):
+    """Analyze product using only barcode database information"""
+    progress_callback(0.1, "Processing barcode data...")
+    
+    if not GEMINI_API_KEY:
+        return {"product_name": "API Key Missing", "score": 0, "verdict": "UNCLEAR", "readable": False}
+    
+    product_name = barcode_info.get('name', 'Unknown Product')
+    brand = barcode_info.get('brand', '')
+    
+    # Check for verified score first
+    verified = get_verified_score(product_name, brand)
+    if verified and verified['scan_count'] >= 2:
+        progress_callback(1.0, "Using verified score!")
+        return {
+            'product_name': product_name,
+            'brand': brand,
+            'score': verified['score'],
+            'verdict': get_verdict(verified['score']),
+            'violations': verified.get('violations', []),
+            'readable': True,
+            'ingredients': barcode_info.get('ingredients', '').split(', ') if barcode_info.get('ingredients') else [],
+            'product_category': 'CATEGORY_FOOD',
+            'product_type': barcode_info.get('product_type', ''),
+            'main_issue': 'Verified product',
+            'positive': 'Database verified',
+            'bonuses': [],
+            'ingredients_flagged': [],
+            'good_ingredients': [],
+            'front_claims': [],
+            'fine_print': [],
+            'notifications': []
+        }
+    
+    progress_callback(0.3, "Analyzing ingredients...")
+    
+    # Build analysis prompt from barcode data
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.1})
+    
+    nutrition_str = json.dumps(barcode_info.get('nutrition', {}), indent=2)
+    
+    prompt = f"""Analyze this product from barcode database using HonestWorld's 20 Integrity Laws:
+
+**Product:** {product_name}
+**Brand:** {brand}
+**Ingredients:** {barcode_info.get('ingredients', 'Not available')}
+**Categories:** {barcode_info.get('categories', '')}
+**Nutrition:** {nutrition_str}
+
+Apply the SAME analysis as photo scans:
+1. Classify product category (CATEGORY_FOOD, CATEGORY_COSMETIC, etc.)
+2. Check violations of the 20 Integrity Laws
+3. Flag concerning ingredients with citations
+4. Calculate score (base 85, deduct for issues)
+
+Location: {location.get('city', '')}, {location.get('country', '')}
+
+Return valid JSON:
+{{
+    "product_name": "exact name",
+    "brand": "brand",
+    "product_category": "CATEGORY_X",
+    "product_type": "type",
+    "readable": true,
+    "score": <0-100>,
+    "violations": [{{"law": num, "name": "...", "points": -X, "evidence": "...", "source": "..."}}],
+    "bonuses": [{{"name": "...", "points": +X, "evidence": "..."}}],
+    "ingredients": ["list"],
+    "ingredients_flagged": [{{"name": "...", "concern": "...", "source": "..."}}],
+    "good_ingredients": ["list"],
+    "main_issue": "primary concern",
+    "positive": "main positive",
+    "front_claims": ["claims"],
+    "fine_print": ["warnings"],
+    "confidence": "high/medium/low"
+}}
+"""
+    
+    progress_callback(0.6, "Applying laws...")
+    
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        
+        # Parse JSON
+        json_match = re.search(r'\{[\s\S]*\}', text)
+        if json_match:
+            result = json.loads(json_match.group(0))
+        else:
+            clean_text = text.replace('```json', '').replace('```', '').strip()
+            result = json.loads(clean_text)
+        
+        # Validate score
+        score = result.get('score', 75)
+        if isinstance(score, str):
+            score = int(re.sub(r'[^\d]', '', score) or '75')
+        score = max(0, min(100, score))
+        
+        result['score'] = score
+        result['verdict'] = get_verdict(score)
+        result['product_name'] = product_name
+        result['brand'] = brand
+        result['readable'] = True
+        
+        # Add notifications
+        product_category = result.get('product_category', 'CATEGORY_FOOD')
+        ingredients = result.get('ingredients', [])
+        full_text = ' '.join(result.get('fine_print', []) + result.get('front_claims', []))
+        
+        notifications = check_profile_notifications(ingredients, full_text, user_profiles or [], user_allergies or [], product_category)
+        result['notifications'] = notifications
+        
+        progress_callback(1.0, "Complete!")
+        return result
+        
+    except Exception as e:
+        return {
+            "product_name": product_name,
+            "brand": brand,
+            "score": 0,
+            "verdict": "UNCLEAR",
+            "readable": False,
+            "main_issue": f"Analysis error: {str(e)[:100]}",
+            "violations": [],
+            "ingredients": [],
+            "product_category": "CATEGORY_FOOD"
+        }
 
 def display_result(result, user_id):
     """Display result - FIXED HTML rendering, all features"""
