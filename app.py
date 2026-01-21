@@ -1,12 +1,16 @@
 """
-🌍 HONESTWORLD v27.0 - CONTEXT-AWARE INTEGRITY ENGINE
-Zero Hallucination • Provable Truth • Perfect Barcode • Smart Categories
+🌍 HONESTWORLD v28.0 - ULTIMATE EDITION
+Zero Bugs • Perfect Accuracy • Score Consistency • Local Alternatives
 
-Core Principles:
-1. ZERO HALLUCINATION - If it can't be proved, don't display it
-2. CONTEXT GATEKEEPER - Category determines which rules apply
-3. PROVABLE TRUTH - Every red flag needs citation, else yellow
-4. PERFECT BARCODE - Fetch from local retailers when label is hard to scan
+FIXES FROM v27:
+1. HTML rendering error fixed
+2. All social media restored
+3. Same product = Same score (learning system)
+4. Citations properly displayed
+5. Better location detection (GPS priority)
+6. Profile alerts as notifications (don't affect score)
+7. Retailer-specific alternatives
+8. Enhanced barcode with AI
 """
 
 import streamlit as st
@@ -27,8 +31,8 @@ import os
 
 st.set_page_config(page_title="HonestWorld", page_icon="🌍", layout="centered", initial_sidebar_state="collapsed")
 
-VERSION = "27.0"
-LOCAL_DB = Path.home() / "honestworld_v27.db"
+VERSION = "28.0"
+LOCAL_DB = Path.home() / "honestworld_v28.db"
 
 def get_secret(key, default=""):
     try: return st.secrets.get(key, os.environ.get(key, default))
@@ -40,480 +44,218 @@ SUPABASE_KEY = get_secret("SUPABASE_KEY", "")
 ADMIN_HASH = hashlib.sha256("honestworld2024".encode()).hexdigest()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MODULE 1: CONTEXT GATEKEEPER - Product Categories & Rule Sets
+# PRODUCT CATEGORIES - Context Gatekeeper
 # ═══════════════════════════════════════════════════════════════════════════════
 PRODUCT_CATEGORIES = {
     "CATEGORY_FOOD": {
-        "name": "Food & Beverage",
-        "icon": "🍎",
-        "subtypes": ["snack", "beverage", "dairy", "cereal", "condiment", "frozen", "canned", "fresh", "baked", "candy", "protein_bar", "meal"],
-        "keywords": ["nutrition facts", "calories", "serving size", "sugar", "protein", "carbohydrate", "sodium", "ingredients:", "total fat", "dietary fiber"],
-        "enabled_rules": ["nutritional", "sugar_analysis", "sodium_check", "allergen", "fine_print", "shrinkflation", "claims_vs_facts"],
-        "disabled_rules": ["chemical_safety", "repairability", "spec_check"],
+        "name": "Food & Beverage", "icon": "🍎",
+        "subtypes": ["snack", "beverage", "dairy", "cereal", "condiment", "frozen", "canned", "protein_bar", "meal"],
+        "enabled_rules": ["nutritional", "sugar_analysis", "sodium_check", "allergen", "fine_print", "claims_vs_facts"],
         "health_profiles": ["diabetes", "heartcondition", "glutenfree", "vegan", "allergyprone", "keto"]
     },
     "CATEGORY_SUPPLEMENT": {
-        "name": "Supplements & Vitamins",
-        "icon": "💊",
-        "subtypes": ["vitamin", "mineral", "herbal", "protein", "probiotic", "omega", "multivitamin", "amino", "pre_workout"],
-        "keywords": ["supplement facts", "dietary supplement", "daily value", "amount per serving", "other ingredients"],
+        "name": "Supplements", "icon": "💊",
+        "subtypes": ["vitamin", "mineral", "herbal", "protein", "probiotic", "omega", "multivitamin"],
         "enabled_rules": ["concentration_check", "third_party_testing", "allergen", "fine_print", "claims_vs_facts"],
-        "disabled_rules": ["chemical_safety", "repairability", "shrinkflation"],
         "health_profiles": ["diabetes", "pregnancy", "vegan", "glutenfree", "allergyprone"]
     },
     "CATEGORY_COSMETIC": {
-        "name": "Cosmetics & Personal Care",
-        "icon": "🧴",
-        "subtypes": ["cleanser", "moisturizer", "serum", "sunscreen", "shampoo", "conditioner", "body_lotion", "face_cream", "toner", "mask", "deodorant", "makeup"],
-        "keywords": ["for external use", "apply to", "skin", "hair", "dermatologist", "spf", "moisturize", "directions:"],
-        "enabled_rules": ["chemical_safety", "allergen", "fragrance_check", "claims_vs_facts", "concentration_check", "fine_print"],
-        "disabled_rules": ["nutritional", "sugar_analysis", "sodium_check", "repairability", "shrinkflation"],
+        "name": "Cosmetics & Personal Care", "icon": "🧴",
+        "subtypes": ["cleanser", "moisturizer", "serum", "sunscreen", "shampoo", "conditioner", "body_lotion", "toner", "mask", "deodorant"],
+        "enabled_rules": ["chemical_safety", "allergen", "fragrance_check", "claims_vs_facts", "fine_print"],
         "health_profiles": ["sensitive", "allergyprone", "pregnancy", "baby", "vegan"]
     },
     "CATEGORY_ELECTRONICS": {
-        "name": "Electronics & Tech",
-        "icon": "📱",
-        "subtypes": ["phone", "laptop", "tablet", "accessory", "cable", "charger", "audio", "wearable", "appliance", "battery"],
-        "keywords": ["battery", "usb", "wireless", "bluetooth", "mah", "watt", "volt", "input:", "output:", "fcc", "ce mark"],
-        "enabled_rules": ["spec_check", "repairability", "claims_vs_facts", "compatibility_check"],
-        "disabled_rules": ["nutritional", "chemical_safety", "allergen", "sugar_analysis"],
+        "name": "Electronics", "icon": "📱",
+        "subtypes": ["phone", "laptop", "tablet", "accessory", "cable", "charger", "audio", "wearable"],
+        "enabled_rules": ["spec_check", "repairability", "claims_vs_facts"],
         "health_profiles": []
     },
     "CATEGORY_HOUSEHOLD": {
-        "name": "Household & Cleaning",
-        "icon": "🧹",
-        "subtypes": ["cleaner", "detergent", "disinfectant", "air_freshener", "laundry", "dish_soap"],
-        "keywords": ["surface", "clean", "disinfect", "laundry", "dish", "warning:", "caution:", "keep out of reach"],
+        "name": "Household", "icon": "🧹",
+        "subtypes": ["cleaner", "detergent", "disinfectant", "air_freshener", "laundry"],
         "enabled_rules": ["chemical_safety", "allergen", "fine_print", "claims_vs_facts"],
-        "disabled_rules": ["nutritional", "sugar_analysis", "repairability", "spec_check"],
         "health_profiles": ["sensitive", "allergyprone", "baby", "pregnancy"]
     }
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MODULE 4: PROVABLE TRUTH - Citation Database (Red = has source, Yellow = no source)
+# THE 20 INTEGRITY LAWS
 # ═══════════════════════════════════════════════════════════════════════════════
-CITATION_DATABASE = {
-    # COSMETIC INGREDIENTS - With full citations
-    "paraben": {
-        "concern": "Potential endocrine disruption",
-        "severity": "red",  # Has citation = red allowed
-        "source": "EU Scientific Committee on Consumer Safety (SCCS)",
-        "source_url": "https://ec.europa.eu/health/scientific_committees/consumer_safety",
-        "year": "2013, updated 2020",
-        "context": ["cosmetics"],
-        "note": "Restricted to 0.4% individual, 0.8% total in EU"
-    },
-    "methylparaben": {
-        "concern": "Potential hormone disruption at high doses",
-        "severity": "red",
-        "source": "EU SCCS Opinion",
-        "source_url": "https://ec.europa.eu/health/scientific_committees/consumer_safety",
-        "year": "2013",
-        "context": ["cosmetics"]
-    },
-    "propylparaben": {
-        "concern": "Higher absorption rate, restricted in EU",
-        "severity": "red",
-        "source": "EU SCCS - Restricted to 0.14%",
-        "year": "2013",
-        "context": ["cosmetics"]
-    },
-    "butylparaben": {
-        "concern": "Higher potency endocrine activity",
-        "severity": "red",
-        "source": "Danish EPA, EU SCCS",
-        "year": "2013",
-        "context": ["cosmetics"],
-        "note": "Banned in Denmark for children under 3"
-    },
-    "fragrance": {
-        "concern": "Undisclosed mixture of 3,000+ potential chemicals",
-        "severity": "red",
-        "source": "American Academy of Dermatology (AAD)",
-        "source_url": "https://www.aad.org",
-        "year": "2021",
-        "context": ["cosmetics", "household"],
-        "note": "Leading cause of cosmetic contact dermatitis"
-    },
-    "parfum": {
-        "concern": "Same as fragrance - undisclosed chemical mixture",
-        "severity": "red",
-        "source": "EU Cosmetics Regulation 1223/2009",
-        "context": ["cosmetics"]
-    },
-    "sodium lauryl sulfate": {
-        "concern": "Can irritate sensitive skin",
-        "severity": "yellow",  # Lower concern, still flagged
-        "source": "Cosmetic Ingredient Review (CIR)",
-        "year": "2005",
-        "context": ["cosmetics"],
-        "note": "Safe in rinse-off products per CIR panel"
-    },
-    "sodium laureth sulfate": {
-        "concern": "Potential 1,4-dioxane contamination",
-        "severity": "yellow",
-        "source": "FDA Guidance",
-        "context": ["cosmetics"]
-    },
-    "phthalate": {
-        "concern": "Endocrine disruption, reproductive effects",
-        "severity": "red",
-        "source": "CDC National Report, EPA Phthalate Action Plan",
-        "source_url": "https://www.epa.gov/assessing-and-managing-chemicals-under-tsca/phthalates",
-        "year": "2012",
-        "context": ["cosmetics"]
-    },
-    "dmdm hydantoin": {
-        "concern": "Formaldehyde-releasing preservative",
-        "severity": "red",
-        "source": "International Agency for Research on Cancer (IARC)",
-        "year": "2012",
-        "context": ["cosmetics"],
-        "note": "IARC classifies formaldehyde as Group 1 carcinogen"
-    },
-    "quaternium-15": {
-        "concern": "Formaldehyde releaser, contact allergen",
-        "severity": "red",
-        "source": "American Contact Dermatitis Society - Allergen of the Year 2015",
-        "year": "2015",
-        "context": ["cosmetics"]
-    },
-    "triclosan": {
-        "concern": "Endocrine disruption, antibiotic resistance",
-        "severity": "red",
-        "source": "FDA - Banned in OTC Antiseptic Wash Products",
-        "source_url": "https://www.fda.gov",
-        "year": "2016",
-        "context": ["cosmetics", "household"]
-    },
-    "oxybenzone": {
-        "concern": "Potential hormone disruption, coral reef damage",
-        "severity": "red",
-        "source": "Hawaii Sunscreen Ban (Act 104)",
-        "year": "2021",
-        "context": ["cosmetics"],
-        "note": "Banned in Hawaii, Key West, Palau for reef protection"
-    },
-    "hydroquinone": {
-        "concern": "Potential carcinogen, ochronosis risk",
-        "severity": "red",
-        "source": "EU Cosmetics Regulation - Banned for OTC",
-        "context": ["cosmetics"],
-        "note": "Banned in EU, Japan, Australia for OTC use"
-    },
-    "retinol": {
-        "concern": "Teratogenic - pregnancy risk",
-        "severity": "red",
-        "source": "FDA Pregnancy Category X (oral retinoids)",
-        "context": ["cosmetics"],
-        "note": "Avoid during pregnancy - topical caution advised"
-    },
+INTEGRITY_LAWS = {
+    1: {"name": "Water-Down Deception", "base_points": -15, "description": "Premium claim but #1 ingredient is water/cheap filler", "tip": "Check if first ingredient matches the premium price", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD"]},
+    2: {"name": "Fairy Dusting", "base_points": -12, "description": "Hero ingredient advertised on front is below position #5", "tip": "Ingredients listed by quantity", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
+    3: {"name": "Split Sugar Trick", "base_points": -18, "description": "Sugar split into 3+ names to hide total", "tip": "Add up ALL sugar types", "applies_to": ["CATEGORY_FOOD"]},
+    4: {"name": "Low-Fat Trap", "base_points": -10, "description": "Claims 'low fat' but compensates with high sugar", "tip": "Low-fat often means high sugar", "applies_to": ["CATEGORY_FOOD"]},
+    5: {"name": "Natural Fallacy", "base_points": -12, "description": "Claims 'natural' but contains synthetics", "tip": "'Natural' is unregulated", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_HOUSEHOLD"]},
+    6: {"name": "Made-With Loophole", "base_points": -8, "description": "'Made with real X' but X is minimal", "tip": "'Made with' requires only tiny amount", "applies_to": ["CATEGORY_FOOD"]},
+    7: {"name": "Serving Size Trick", "base_points": -10, "description": "Unrealistically small serving size", "tip": "Check servings per container", "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
+    8: {"name": "Slack Fill", "base_points": -8, "description": "Package mostly air/empty space", "tip": "Check net weight, not package size", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
+    9: {"name": "Spec Inflation", "base_points": -15, "description": "'Up to X speed/capacity' unrealistic", "tip": "'Up to' means lab conditions", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    10: {"name": "Compatibility Lie", "base_points": -12, "description": "'Universal' with hidden exceptions", "tip": "Check compatibility in fine print", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    11: {"name": "Military Grade Myth", "base_points": -10, "description": "Claims 'military grade' without MIL-STD cert", "tip": "Real military spec cites MIL-STD number", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    12: {"name": "Battery Fiction", "base_points": -12, "description": "Unrealistic battery life claims", "tip": "Tested with minimal usage", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    13: {"name": "Clinical Ghost", "base_points": -12, "description": "'Clinically proven' without citing study", "tip": "Real proof includes study details", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"]},
+    14: {"name": "Concentration Trick", "base_points": -10, "description": "Active ingredient too diluted", "tip": "Effective: Vitamin C 10-20%, Retinol 0.3-1%", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"]},
+    15: {"name": "Free Trap", "base_points": -15, "description": "'Free' requires credit card/hidden purchase", "tip": "Free trial usually auto-charges", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    16: {"name": "Unlimited Lie", "base_points": -18, "description": "'Unlimited' with hidden caps", "tip": "'Unlimited' rarely means unlimited", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    17: {"name": "Lifetime Illusion", "base_points": -10, "description": "'Lifetime warranty' with exclusions", "tip": "'Lifetime' has many exclusions", "applies_to": ["CATEGORY_ELECTRONICS"]},
+    18: {"name": "Photo vs Reality", "base_points": -12, "description": "Package photo much better than product", "tip": "Photos are professionally styled", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
+    19: {"name": "Fake Claim", "base_points": -15, "description": "Claims certification without verification", "tip": "Real certs show logo and ID", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT", "CATEGORY_ELECTRONICS"]},
+    20: {"name": "Name Trick", "base_points": -10, "description": "Product name implies absent ingredient", "tip": "'Honey Oat' doesn't mean much honey", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]}
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CITATION DATABASE - Properly Structured for Display
+# ═══════════════════════════════════════════════════════════════════════════════
+CITATIONS = {
+    # Parabens
+    "paraben": {"concern": "Potential endocrine disruption", "severity": "medium", "source": "EU SCCS", "full_source": "EU Scientific Committee on Consumer Safety (SCCS), 2013"},
+    "methylparaben": {"concern": "Potential hormone disruption", "severity": "medium", "source": "EU SCCS", "full_source": "EU SCCS Opinion 2013, CIR Expert Panel"},
+    "propylparaben": {"concern": "Higher absorption rate", "severity": "medium", "source": "EU SCCS", "full_source": "EU SCCS - Restricted to 0.14%"},
+    "butylparaben": {"concern": "Higher potency endocrine activity", "severity": "high", "source": "Danish EPA", "full_source": "Danish EPA, EU SCCS Opinion 2013"},
+    "ethylparaben": {"concern": "Potential endocrine effects", "severity": "medium", "source": "EU SCCS", "full_source": "EU SCCS Opinion 2013"},
     
-    # FOOD INGREDIENTS
-    "trans fat": {
-        "concern": "Increases LDL, heart disease risk",
-        "severity": "red",
-        "source": "FDA Final Rule - PHO Ban, American Heart Association",
-        "source_url": "https://www.fda.gov",
-        "year": "2018",
-        "context": ["food"],
-        "note": "Banned in US food supply"
-    },
-    "hydrogenated oil": {
-        "concern": "May contain trans fats",
-        "severity": "red",
-        "source": "FDA, American Heart Association",
-        "context": ["food"],
-        "note": "Partially hydrogenated = trans fats"
-    },
-    "high fructose corn syrup": {
-        "concern": "Linked to metabolic issues when over-consumed",
-        "severity": "yellow",
-        "source": "American Journal of Clinical Nutrition",
-        "year": "2004",
-        "context": ["food"]
-    },
-    "red 40": {
-        "concern": "Hyperactivity in sensitive children",
-        "severity": "yellow",
-        "source": "EFSA Opinion, Southampton Study",
-        "year": "2007",
-        "context": ["food"],
-        "note": "Requires warning in EU, not US"
-    },
-    "yellow 5": {
-        "concern": "May cause reactions in aspirin-sensitive individuals",
-        "severity": "yellow",
-        "source": "FDA CFSAN",
-        "context": ["food"]
-    },
-    "aspartame": {
-        "concern": "IARC 'possibly carcinogenic' classification",
-        "severity": "yellow",
-        "source": "WHO IARC Review",
-        "year": "2023",
-        "context": ["food"],
-        "note": "FDA maintains safety at approved levels"
-    },
-    "bpa": {
-        "concern": "Endocrine disruption",
-        "severity": "red",
-        "source": "FDA - Banned in Baby Bottles, EFSA",
-        "year": "2012",
-        "context": ["food", "household"]
-    },
-    "titanium dioxide": {
-        "concern": "Potential genotoxicity concerns",
-        "severity": "red",
-        "source": "EFSA Opinion - EU Food Ban",
-        "year": "2022",
-        "context": ["food"],
-        "note": "Banned in food in EU since 2022, allowed in US"
-    },
+    # Fragrance
+    "fragrance": {"concern": "Undisclosed chemical mixture, allergen", "severity": "medium", "source": "AAD", "full_source": "American Academy of Dermatology"},
+    "parfum": {"concern": "Undisclosed chemical mixture, allergen", "severity": "medium", "source": "EU Regulation", "full_source": "EU Cosmetics Regulation 1223/2009"},
     
-    # ELECTRONICS - Repairability Citations
-    "sealed_battery": {
-        "concern": "Reduces device lifespan, e-waste",
-        "severity": "yellow",
-        "source": "iFixit Repairability Standards, EU Right to Repair Directive",
-        "year": "2021",
-        "context": ["electronics"]
-    },
-    "proprietary_charger": {
-        "concern": "E-waste, consumer lock-in",
-        "severity": "yellow",
-        "source": "EU Common Charger Directive 2022/2380",
-        "year": "2022",
-        "context": ["electronics"],
-        "note": "USB-C mandate for EU from 2024"
-    },
-    "non_replaceable_parts": {
-        "concern": "Planned obsolescence",
-        "severity": "yellow",
-        "source": "EU Ecodesign Directive, France Repairability Index",
-        "context": ["electronics"]
-    }
+    # Sulfates
+    "sodium lauryl sulfate": {"concern": "Can irritate sensitive skin", "severity": "low", "source": "CIR Panel", "full_source": "Cosmetic Ingredient Review Expert Panel"},
+    "sodium laureth sulfate": {"concern": "Potential 1,4-dioxane contamination", "severity": "low", "source": "FDA", "full_source": "FDA Guidance on 1,4-dioxane"},
+    "sls": {"concern": "Can irritate sensitive skin", "severity": "low", "source": "CIR Panel", "full_source": "Cosmetic Ingredient Review Expert Panel"},
+    
+    # Formaldehyde releasers
+    "dmdm hydantoin": {"concern": "Formaldehyde-releasing preservative", "severity": "high", "source": "IARC", "full_source": "International Agency for Research on Cancer"},
+    "quaternium-15": {"concern": "Formaldehyde releaser, allergen", "severity": "high", "source": "ACDS", "full_source": "American Contact Dermatitis Society - Allergen of Year 2015"},
+    "imidazolidinyl urea": {"concern": "Formaldehyde releaser", "severity": "high", "source": "IARC", "full_source": "IARC, EU SCCS"},
+    "diazolidinyl urea": {"concern": "Formaldehyde releaser", "severity": "high", "source": "IARC", "full_source": "IARC Classification"},
+    
+    # Other cosmetic
+    "triclosan": {"concern": "Endocrine disruption, antibiotic resistance", "severity": "high", "source": "FDA Ban 2016", "full_source": "FDA Ban in Consumer Antiseptics 2016"},
+    "oxybenzone": {"concern": "Hormone disruption, coral damage", "severity": "medium", "source": "Hawaii Ban", "full_source": "Hawaii Sunscreen Ban Act 104, 2021"},
+    "hydroquinone": {"concern": "Potential carcinogen", "severity": "high", "source": "EU Ban", "full_source": "EU Cosmetics Regulation - Banned for OTC"},
+    "retinol": {"concern": "Pregnancy risk (teratogenic)", "severity": "context", "source": "FDA", "full_source": "FDA Pregnancy Category X for oral retinoids"},
+    "phthalate": {"concern": "Endocrine disruption", "severity": "high", "source": "CDC/EPA", "full_source": "CDC National Report, EPA Phthalate Action Plan"},
+    
+    # Silicones (lower concern)
+    "dimethicone": {"concern": "May cause buildup", "severity": "low", "source": "CIR", "full_source": "Generally considered safe by CIR"},
+    "cyclomethicone": {"concern": "Environmental persistence", "severity": "low", "source": "EU Review", "full_source": "EU Environmental Review"},
+    
+    # Food
+    "trans fat": {"concern": "Heart disease risk", "severity": "high", "source": "FDA Ban", "full_source": "FDA PHO Ban 2018, American Heart Association"},
+    "hydrogenated oil": {"concern": "May contain trans fats", "severity": "high", "source": "FDA/AHA", "full_source": "FDA, American Heart Association"},
+    "high fructose corn syrup": {"concern": "Metabolic concerns when over-consumed", "severity": "medium", "source": "AJCN", "full_source": "American Journal of Clinical Nutrition"},
+    "red 40": {"concern": "Hyperactivity in sensitive children", "severity": "low", "source": "EFSA", "full_source": "EFSA Opinion, Southampton Study"},
+    "yellow 5": {"concern": "May cause reactions", "severity": "low", "source": "FDA", "full_source": "FDA CFSAN"},
+    "aspartame": {"concern": "IARC 'possibly carcinogenic'", "severity": "low", "source": "WHO IARC 2023", "full_source": "WHO IARC Review 2023"},
+    "msg": {"concern": "May cause reactions in sensitive individuals", "severity": "low", "source": "FDA GRAS", "full_source": "FDA Generally Recognized as Safe"},
+    "sodium nitrite": {"concern": "Forms nitrosamines when heated", "severity": "medium", "source": "IARC", "full_source": "IARC Group 2A probable carcinogen"},
+    "bha": {"concern": "Possible carcinogen", "severity": "medium", "source": "IARC", "full_source": "IARC Group 2B, California Prop 65"},
+    "bht": {"concern": "Possible endocrine effects", "severity": "low", "source": "NTP", "full_source": "National Toxicology Program"},
+    "titanium dioxide": {"concern": "EU food ban 2022", "severity": "medium", "source": "EFSA", "full_source": "EFSA Opinion 2021, EU Ban 2022"},
+    "carrageenan": {"concern": "Digestive inflammation concerns", "severity": "low", "source": "Cornucopia", "full_source": "Cornucopia Institute Review"},
+    
+    # Packaging
+    "bpa": {"concern": "Endocrine disruption", "severity": "high", "source": "FDA", "full_source": "FDA Banned in Baby Bottles 2012"},
 }
 
 def get_citation(ingredient_name):
-    """Get citation for ingredient - returns severity level based on evidence"""
+    """Get citation for ingredient - returns dict with source info"""
+    if not ingredient_name:
+        return None
     key = ingredient_name.lower().strip()
     
     # Direct match
-    if key in CITATION_DATABASE:
-        return CITATION_DATABASE[key]
+    if key in CITATIONS:
+        return CITATIONS[key]
     
     # Partial match
-    for db_key, data in CITATION_DATABASE.items():
+    for db_key, data in CITATIONS.items():
         if db_key in key or key in db_key:
             return data
     
-    # No citation found - return yellow (unverified concern)
     return None
 
-def get_flag_severity(ingredient_name, product_category):
-    """
-    PROVABLE TRUTH: Red flag only if we have citation, else yellow
-    """
+def format_citation_display(ingredient_name, concern=None):
+    """Format citation for UI display - returns (text, has_citation)"""
     citation = get_citation(ingredient_name)
-    
     if citation:
-        # Check if citation applies to this product category
-        contexts = citation.get('context', [])
-        category_map = {
-            'CATEGORY_FOOD': 'food',
-            'CATEGORY_SUPPLEMENT': 'food',
-            'CATEGORY_COSMETIC': 'cosmetics',
-            'CATEGORY_ELECTRONICS': 'electronics',
-            'CATEGORY_HOUSEHOLD': 'household'
-        }
-        relevant_context = category_map.get(product_category, 'food')
-        
-        if not contexts or relevant_context in contexts:
-            return citation.get('severity', 'yellow'), citation
-    
-    # No citation = yellow warning only
-    return 'yellow', None
+        return f"{citation.get('concern', concern or 'Concern flagged')} • {citation.get('source', '')}", True
+    return f"{concern or 'Potential concern'} • No citation", False
 # ═══════════════════════════════════════════════════════════════════════════════
-# THE 20 INTEGRITY LAWS - With Dynamic Category Weights
-# ═══════════════════════════════════════════════════════════════════════════════
-INTEGRITY_LAWS = {
-    1: {"name": "Water-Down Deception", "base_points": -15, "category": "ingredients",
-        "description": "Premium claim but #1 ingredient is water/cheap filler",
-        "tip": "Check if first ingredient matches the premium price",
-        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD"],
-        "dynamic": {"serum": -25, "concentrate": -25, "mist": -3, "toner": -5, "beverage": 0}},
-    2: {"name": "Fairy Dusting", "base_points": -12, "category": "ingredients",
-        "description": "Hero ingredient advertised on front is below position #5",
-        "tip": "Ingredients listed by quantity - first = most",
-        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
-    3: {"name": "Split Sugar Trick", "base_points": -18, "category": "ingredients",
-        "description": "Sugar split into 3+ names to hide total amount",
-        "tip": "Add up ALL sugar types - often the real #1",
-        "applies_to": ["CATEGORY_FOOD"]},
-    4: {"name": "Low-Fat Trap", "base_points": -10, "category": "ingredients",
-        "description": "Claims 'low fat' but compensates with high sugar",
-        "tip": "Low-fat often means high sugar",
-        "applies_to": ["CATEGORY_FOOD"]},
-    5: {"name": "Natural Fallacy", "base_points": -12, "category": "claims",
-        "description": "Claims 'natural' but contains synthetic ingredients",
-        "tip": "'Natural' is unregulated - look for certifications",
-        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_HOUSEHOLD"],
-        "synthetic_flags": ["phenoxyethanol", "dimethicone", "peg-", "propylene glycol", "artificial"]},
-    6: {"name": "Made-With Loophole", "base_points": -8, "category": "ingredients",
-        "description": "'Made with real X' but X is minimal",
-        "tip": "'Made with' legally requires only tiny amount",
-        "applies_to": ["CATEGORY_FOOD"]},
-    7: {"name": "Serving Size Trick", "base_points": -10, "category": "packaging",
-        "description": "Unrealistically small serving size",
-        "tip": "Check servings per container",
-        "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
-    8: {"name": "Slack Fill", "base_points": -8, "category": "packaging",
-        "description": "Package mostly air/empty space",
-        "tip": "Check net weight, not package size",
-        "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
-    9: {"name": "Spec Inflation", "base_points": -15, "category": "electronics",
-        "description": "'Up to X speed/capacity' unrealistic claims",
-        "tip": "'Up to' means perfect lab conditions",
-        "applies_to": ["CATEGORY_ELECTRONICS"]},
-    10: {"name": "Compatibility Lie", "base_points": -12, "category": "electronics",
-         "description": "'Universal' with hidden exceptions",
-         "tip": "Check compatibility list in fine print",
-         "applies_to": ["CATEGORY_ELECTRONICS"]},
-    11: {"name": "Military Grade Myth", "base_points": -10, "category": "electronics",
-         "description": "Claims 'military grade' without MIL-STD cert",
-         "tip": "Real military spec cites MIL-STD number",
-         "applies_to": ["CATEGORY_ELECTRONICS"]},
-    12: {"name": "Battery Fiction", "base_points": -12, "category": "electronics",
-         "description": "Unrealistic battery life claims",
-         "tip": "Tested with minimal usage - expect 60-70%",
-         "applies_to": ["CATEGORY_ELECTRONICS"]},
-    13: {"name": "Clinical Ghost", "base_points": -12, "category": "claims",
-         "description": "'Clinically proven' without citing study",
-         "tip": "Real clinical proof includes study details",
-         "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"]},
-    14: {"name": "Concentration Trick", "base_points": -10, "category": "ingredients",
-         "description": "Active ingredient too diluted to be effective",
-         "tip": "Effective: Vitamin C 10-20%, Retinol 0.3-1%",
-         "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"]},
-    15: {"name": "Free Trap", "base_points": -15, "category": "services",
-         "description": "'Free' requires credit card or hidden purchase",
-         "tip": "Free trial usually auto-charges",
-         "applies_to": ["CATEGORY_ELECTRONICS"]},
-    16: {"name": "Unlimited Lie", "base_points": -18, "category": "services",
-         "description": "'Unlimited' with hidden caps or throttling",
-         "tip": "'Unlimited' rarely means truly unlimited",
-         "applies_to": ["CATEGORY_ELECTRONICS"]},
-    17: {"name": "Lifetime Illusion", "base_points": -10, "category": "services",
-         "description": "'Lifetime warranty' with extensive exclusions",
-         "tip": "'Lifetime' often has many exclusions",
-         "applies_to": ["CATEGORY_ELECTRONICS"]},
-    18: {"name": "Photo vs Reality", "base_points": -12, "category": "packaging",
-         "description": "Package photo much better than actual product",
-         "tip": "Package photos are professionally styled",
-         "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
-    19: {"name": "Fake Certification", "base_points": -15, "category": "claims",
-         "description": "Claims certification without proper verification",
-         "tip": "Real certs show logo and verification ID",
-         "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT", "CATEGORY_ELECTRONICS"]},
-    20: {"name": "Name Trick", "base_points": -10, "category": "claims",
-         "description": "Product name implies absent ingredient",
-         "tip": "'Honey Oat' doesn't mean much honey/oats",
-         "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]}
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MODULE 5: ELECTRONICS REPAIRABILITY & SHRINKFLATION
-# ═══════════════════════════════════════════════════════════════════════════════
-REPAIRABILITY_FACTORS = {
-    "user_replaceable_battery": {"points": 15, "name": "User Replaceable Battery", "icon": "🔋"},
-    "standard_screws": {"points": 5, "name": "Standard Screws (No Proprietary)", "icon": "🔩"},
-    "usb_c_port": {"points": 5, "name": "Standard USB-C Port", "icon": "🔌"},
-    "modular_design": {"points": 10, "name": "Modular/Repairable Design", "icon": "🔧"},
-    "available_parts": {"points": 5, "name": "Spare Parts Available", "icon": "📦"},
-    "sealed_battery": {"points": -10, "name": "Sealed/Non-Removable Battery", "icon": "⚠️"},
-    "proprietary_screws": {"points": -5, "name": "Proprietary Screws", "icon": "❌"},
-    "glued_components": {"points": -10, "name": "Glued Components", "icon": "🔒"},
-    "no_repair_manual": {"points": -5, "name": "No Repair Documentation", "icon": "📵"}
-}
-
-SHRINKFLATION_REFERENCE = {
-    # Category averages for comparison (grams or ml per dollar)
-    "chips": {"avg_weight_per_dollar": 28, "unit": "g"},
-    "cereal": {"avg_weight_per_dollar": 50, "unit": "g"},
-    "chocolate": {"avg_weight_per_dollar": 25, "unit": "g"},
-    "protein_bar": {"avg_weight_per_dollar": 15, "unit": "g"},
-    "beverage": {"avg_volume_per_dollar": 350, "unit": "ml"},
-    "ice_cream": {"avg_volume_per_dollar": 200, "unit": "ml"}
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CONTEXT-AWARE HEALTH PROFILES
+# HEALTH PROFILES - Notifications Only (Don't Affect Score)
 # ═══════════════════════════════════════════════════════════════════════════════
 HEALTH_PROFILES = {
     "diabetes": {
         "name": "Diabetes", "icon": "🩺",
         "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"],
-        "ingredient_flags": ["sugar", "glucose", "fructose", "corn syrup", "dextrose", "maltose", "honey", "agave", "maltodextrin"],
+        "ingredient_flags": ["sugar", "glucose", "fructose", "corn syrup", "dextrose", "maltose", "honey", "agave", "maltodextrin", "sucrose"],
         "fine_print_scan": ["high sugar", "not suitable for diabetics", "may affect blood sugar"],
-        "alert_template": "Contains ingredients that may affect blood glucose"
+        "notification": "⚠️ Contains sugar/sweeteners - monitor blood glucose"
     },
     "heartcondition": {
         "name": "Heart Health", "icon": "❤️",
-        "applies_to": ["CATEGORY_FOOD"],  # ONLY FOOD - not cosmetics!
+        "applies_to": ["CATEGORY_FOOD"],  # ONLY FOOD!
         "ingredient_flags": ["sodium", "salt", "msg", "trans fat", "hydrogenated", "saturated fat"],
-        "fine_print_scan": ["high sodium", "high salt", "not suitable for low sodium"],
-        "alert_template": "Contains ingredients to monitor for heart health"
+        "fine_print_scan": ["high sodium", "high salt"],
+        "notification": "⚠️ Contains sodium/fats - monitor for heart health"
     },
     "glutenfree": {
         "name": "Gluten-Free", "icon": "🌾",
         "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"],
-        "ingredient_flags": ["wheat", "barley", "rye", "gluten", "malt", "spelt", "kamut"],
-        "fine_print_scan": ["may contain wheat", "may contain gluten", "traces of wheat", "processed in a facility", "shared equipment"],
-        "alert_template": "Contains or may contain gluten"
+        "ingredient_flags": ["wheat", "barley", "rye", "gluten", "malt", "spelt", "kamut", "triticale"],
+        "fine_print_scan": ["may contain wheat", "may contain gluten", "traces of wheat", "processed in a facility", "shared equipment with wheat"],
+        "notification": "🚨 Contains or may contain GLUTEN"
     },
     "vegan": {
         "name": "Vegan", "icon": "🌱",
         "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"],
-        "ingredient_flags": ["gelatin", "carmine", "honey", "milk", "whey", "casein", "egg", "lanolin", "beeswax", "collagen", "keratin"],
+        "ingredient_flags": ["gelatin", "carmine", "honey", "milk", "whey", "casein", "egg", "lanolin", "beeswax", "collagen", "keratin", "shellac", "lard", "tallow"],
         "fine_print_scan": ["may contain milk", "may contain egg", "not suitable for vegans"],
-        "alert_template": "May contain animal-derived ingredients"
+        "notification": "⚠️ May contain animal-derived ingredients"
     },
     "sensitive": {
         "name": "Sensitive Skin", "icon": "🌸",
         "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_HOUSEHOLD"],
-        "ingredient_flags": ["fragrance", "parfum", "alcohol denat", "essential oil", "menthol", "sulfate", "sodium lauryl"],
-        "fine_print_scan": ["patch test recommended", "not suitable for sensitive skin", "may cause irritation", "discontinue if irritation"],
-        "alert_template": "Contains potential irritants for sensitive skin"
+        "ingredient_flags": ["fragrance", "parfum", "alcohol denat", "essential oil", "menthol", "sulfate", "sodium lauryl", "witch hazel"],
+        "fine_print_scan": ["patch test recommended", "not suitable for sensitive skin", "may cause irritation"],
+        "notification": "⚠️ Contains potential irritants - patch test recommended"
     },
     "pregnancy": {
         "name": "Pregnancy", "icon": "🤰",
         "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT", "CATEGORY_FOOD"],
-        "ingredient_flags": ["retinol", "retinoid", "salicylic acid", "benzoyl peroxide", "hydroquinone", "high dose vitamin a"],
+        "ingredient_flags": ["retinol", "retinoid", "salicylic acid", "benzoyl peroxide", "hydroquinone", "vitamin a"],
         "fine_print_scan": ["not recommended during pregnancy", "consult doctor if pregnant", "avoid if pregnant"],
-        "alert_template": "Contains ingredients to discuss with doctor during pregnancy"
+        "notification": "⚠️ Contains ingredients to discuss with doctor during pregnancy"
     },
     "baby": {
         "name": "Baby Safe", "icon": "👶",
         "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_HOUSEHOLD", "CATEGORY_FOOD"],
-        "ingredient_flags": ["fragrance", "parfum", "essential oil", "menthol", "camphor", "alcohol denat"],
-        "fine_print_scan": ["not for children under", "keep away from children", "not suitable for infants", "adult use only"],
-        "alert_template": "May not be suitable for babies/young children"
+        "ingredient_flags": ["fragrance", "parfum", "essential oil", "menthol", "camphor", "alcohol denat", "honey"],
+        "fine_print_scan": ["not for children under", "keep away from children", "not suitable for infants"],
+        "notification": "⚠️ May not be suitable for babies/young children"
     },
     "allergyprone": {
         "name": "Allergy Prone", "icon": "🤧",
         "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"],
-        "ingredient_flags": ["peanut", "tree nut", "soy", "milk", "egg", "wheat", "shellfish", "fish", "sesame", "fragrance"],
+        "ingredient_flags": ["peanut", "tree nut", "soy", "milk", "egg", "wheat", "shellfish", "fish", "sesame", "fragrance", "lanolin"],
         "fine_print_scan": ["may contain", "traces of", "processed in a facility"],
-        "alert_template": "Contains common allergens"
+        "notification": "⚠️ Contains common allergens - check carefully"
     },
     "keto": {
         "name": "Keto Diet", "icon": "🥑",
         "applies_to": ["CATEGORY_FOOD"],
-        "ingredient_flags": ["sugar", "glucose", "fructose", "corn syrup", "maltodextrin", "wheat", "rice", "potato starch"],
+        "ingredient_flags": ["sugar", "glucose", "fructose", "corn syrup", "maltodextrin", "wheat", "rice", "potato starch", "corn starch"],
         "fine_print_scan": [],
-        "alert_template": "Contains high-carb ingredients"
+        "notification": "⚠️ Contains high-carb ingredients"
+    },
+    "dairy": {
+        "name": "Dairy-Free", "icon": "🥛",
+        "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"],
+        "ingredient_flags": ["milk", "lactose", "whey", "casein", "cream", "butter", "cheese", "yogurt", "ghee", "lactalbumin"],
+        "fine_print_scan": ["may contain milk", "may contain dairy", "traces of milk", "contains milk ingredients"],
+        "notification": "🚨 Contains or may contain DAIRY"
     }
 }
 
@@ -523,8 +265,8 @@ ALLERGENS = {
     "nuts": {"name": "Tree Nuts", "icon": "🥜", "triggers": ["almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut", "macadamia"], "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
     "peanuts": {"name": "Peanuts", "icon": "🥜", "triggers": ["peanut", "groundnut", "arachis"], "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
     "soy": {"name": "Soy", "icon": "🫘", "triggers": ["soy", "soya", "soybean", "tofu", "lecithin"], "applies_to": ["CATEGORY_FOOD"]},
-    "eggs": {"name": "Eggs", "icon": "🥚", "triggers": ["egg", "albumin", "mayonnaise", "meringue"], "applies_to": ["CATEGORY_FOOD"]},
-    "shellfish": {"name": "Shellfish", "icon": "🦐", "triggers": ["shrimp", "crab", "lobster", "prawn", "shellfish"], "applies_to": ["CATEGORY_FOOD"]},
+    "eggs": {"name": "Eggs", "icon": "🥚", "triggers": ["egg", "albumin", "mayonnaise", "meringue", "lysozyme"], "applies_to": ["CATEGORY_FOOD"]},
+    "shellfish": {"name": "Shellfish", "icon": "🦐", "triggers": ["shrimp", "crab", "lobster", "prawn", "shellfish", "scallop", "oyster"], "applies_to": ["CATEGORY_FOOD"]},
     "fish": {"name": "Fish", "icon": "🐟", "triggers": ["fish", "salmon", "tuna", "cod", "anchovy", "fish oil"], "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
     "sesame": {"name": "Sesame", "icon": "🫘", "triggers": ["sesame", "tahini"], "applies_to": ["CATEGORY_FOOD"]},
     "fragrance": {"name": "Fragrance", "icon": "🌺", "triggers": ["fragrance", "parfum", "perfume"], "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_HOUSEHOLD"]},
@@ -533,64 +275,174 @@ ALLERGENS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PERFECT BARCODE SYSTEM - Multi-Source + Retailer Lookup
+# RETAILER-SPECIFIC ALTERNATIVES - Accurate for Each Country
 # ═══════════════════════════════════════════════════════════════════════════════
-RETAILER_APIS = {
+ALTERNATIVES_BY_COUNTRY = {
     "AU": {
-        "name": "Australia",
-        "retailers": [
-            {"name": "Woolworths", "search_url": "https://www.woolworths.com.au/shop/search/products?searchTerm={query}", "type": "grocery"},
-            {"name": "Coles", "search_url": "https://www.coles.com.au/search?q={query}", "type": "grocery"},
-            {"name": "Chemist Warehouse", "search_url": "https://www.chemistwarehouse.com.au/search?searchtext={query}", "type": "pharmacy"},
-            {"name": "Priceline", "search_url": "https://www.priceline.com.au/search/?q={query}", "type": "pharmacy"}
-        ]
+        "cleanser": {"name": "Cetaphil Gentle Skin Cleanser", "retailer": "Chemist Warehouse, Priceline, Woolworths, Coles", "score": 85, "why": "Widely available, fragrance-free options"},
+        "moisturizer": {"name": "CeraVe Moisturising Cream", "retailer": "Chemist Warehouse, Priceline", "score": 92, "why": "Ceramides, fragrance-free"},
+        "serum": {"name": "The Ordinary Niacinamide 10%", "retailer": "Priceline, Mecca, Adore Beauty", "score": 91, "why": "Affordable, effective"},
+        "sunscreen": {"name": "Cancer Council SPF 50+", "retailer": "Woolworths, Coles, Chemist Warehouse", "score": 90, "why": "Australian made, high protection"},
+        "shampoo": {"name": "Sukin Natural Shampoo", "retailer": "Woolworths, Coles, Chemist Warehouse", "score": 88, "why": "Australian, natural ingredients"},
+        "body_lotion": {"name": "QV Skin Lotion", "retailer": "Chemist Warehouse, Priceline, Woolworths", "score": 93, "why": "Dermatologist recommended, fragrance-free"},
+        "deodorant": {"name": "Sukin Natural Deodorant", "retailer": "Woolworths, Coles, Priceline", "score": 85, "why": "No aluminum, Australian made"},
+        "protein_bar": {"name": "Clif Bar or Carman's", "retailer": "Woolworths, Coles", "score": 80, "why": "Widely available, better ingredients"},
+        "cereal": {"name": "Uncle Tobys or Sanitarium", "retailer": "Woolworths, Coles", "score": 82, "why": "Australian brands, less processed"},
+        "snack": {"name": "Carman's Muesli Bars", "retailer": "Woolworths, Coles", "score": 81, "why": "Australian, natural ingredients"},
+        "vitamin": {"name": "Blackmores or Swisse", "retailer": "Chemist Warehouse, Priceline, Woolworths", "score": 88, "why": "Australian TGA approved"},
+        "supplement": {"name": "Blackmores or Nature's Own", "retailer": "Chemist Warehouse, Priceline", "score": 87, "why": "Australian made, TGA listed"},
+        "default": {"name": "Check Chemist Warehouse or Priceline", "retailer": "Chemist Warehouse, Priceline", "score": None, "why": "Wide range of alternatives"}
     },
     "US": {
-        "name": "United States",
-        "retailers": [
-            {"name": "Target", "search_url": "https://www.target.com/s?searchTerm={query}", "type": "general"},
-            {"name": "Walmart", "search_url": "https://www.walmart.com/search?q={query}", "type": "general"},
-            {"name": "CVS", "search_url": "https://www.cvs.com/search?searchTerm={query}", "type": "pharmacy"},
-            {"name": "Walgreens", "search_url": "https://www.walgreens.com/search/results.jsp?Ntt={query}", "type": "pharmacy"}
-        ]
+        "cleanser": {"name": "CeraVe Hydrating Cleanser", "retailer": "CVS, Walgreens, Target, Walmart", "score": 92, "why": "Fragrance-free, ceramides"},
+        "moisturizer": {"name": "CeraVe Moisturizing Cream", "retailer": "CVS, Walgreens, Target, Walmart", "score": 94, "why": "Ceramides, hyaluronic acid"},
+        "serum": {"name": "The Ordinary Niacinamide 10%", "retailer": "Ulta, Sephora, Target", "score": 91, "why": "Affordable, transparent formula"},
+        "sunscreen": {"name": "EltaMD UV Clear SPF 46", "retailer": "Dermstore, Amazon, Ulta", "score": 93, "why": "Dermatologist recommended"},
+        "shampoo": {"name": "Free & Clear Shampoo", "retailer": "CVS, Walgreens, Amazon", "score": 94, "why": "No sulfates, fragrance, parabens"},
+        "body_lotion": {"name": "Vanicream Moisturizing Lotion", "retailer": "CVS, Walgreens, Target", "score": 95, "why": "Dermatologist recommended, no irritants"},
+        "deodorant": {"name": "Native Deodorant (Unscented)", "retailer": "Target, Walmart, CVS", "score": 86, "why": "No aluminum, parabens"},
+        "protein_bar": {"name": "RXBAR", "retailer": "Target, Walmart, Whole Foods", "score": 84, "why": "Simple ingredients, no added sugar"},
+        "cereal": {"name": "Nature's Path Organic", "retailer": "Target, Whole Foods, Walmart", "score": 85, "why": "USDA organic, no artificial colors"},
+        "vitamin": {"name": "Thorne Research", "retailer": "Amazon, Thorne.com", "score": 94, "why": "Third-party tested, NSF certified"},
+        "supplement": {"name": "NOW Foods", "retailer": "Whole Foods, Amazon, Vitamin Shoppe", "score": 90, "why": "GMP certified"},
+        "default": {"name": "Check EWG.org for ratings", "retailer": "Various retailers", "score": None, "why": "Independent safety ratings"}
     },
     "GB": {
-        "name": "United Kingdom",
-        "retailers": [
-            {"name": "Boots", "search_url": "https://www.boots.com/search?text={query}", "type": "pharmacy"},
-            {"name": "Tesco", "search_url": "https://www.tesco.com/groceries/en-GB/search?query={query}", "type": "grocery"},
-            {"name": "Superdrug", "search_url": "https://www.superdrug.com/search?text={query}", "type": "pharmacy"}
-        ]
+        "cleanser": {"name": "CeraVe Hydrating Cleanser", "retailer": "Boots, Superdrug", "score": 92, "why": "Fragrance-free, gentle"},
+        "moisturizer": {"name": "CeraVe Moisturising Cream", "retailer": "Boots, Superdrug, Sainsbury's", "score": 94, "why": "Ceramides, dermatologist recommended"},
+        "serum": {"name": "The Ordinary Niacinamide 10%", "retailer": "Boots, Superdrug, Cult Beauty", "score": 91, "why": "UK brand, affordable"},
+        "sunscreen": {"name": "La Roche-Posay Anthelios", "retailer": "Boots, Superdrug", "score": 92, "why": "High protection, sensitive skin"},
+        "shampoo": {"name": "Simple Kind to Skin", "retailer": "Boots, Tesco, Sainsbury's", "score": 87, "why": "No harsh chemicals"},
+        "body_lotion": {"name": "E45 Moisturising Lotion", "retailer": "Boots, Tesco, Superdrug", "score": 90, "why": "Dermatologically tested"},
+        "vitamin": {"name": "Holland & Barrett Own Brand", "retailer": "Holland & Barrett, Boots", "score": 85, "why": "Quality tested"},
+        "default": {"name": "Check Boots or Holland & Barrett", "retailer": "Boots, Holland & Barrett", "score": None, "why": "Wide range available"}
     },
     "NZ": {
-        "name": "New Zealand",
-        "retailers": [
-            {"name": "Countdown", "search_url": "https://www.countdown.co.nz/shop/searchproducts?search={query}", "type": "grocery"},
-            {"name": "Chemist Warehouse NZ", "search_url": "https://www.chemistwarehouse.co.nz/search?searchtext={query}", "type": "pharmacy"}
-        ]
+        "cleanser": {"name": "Cetaphil Gentle Cleanser", "retailer": "Chemist Warehouse NZ, Countdown", "score": 85, "why": "Gentle, widely available"},
+        "moisturizer": {"name": "CeraVe or QV", "retailer": "Chemist Warehouse NZ, Unichem", "score": 92, "why": "Fragrance-free options"},
+        "sunscreen": {"name": "Cancer Society SPF 50+", "retailer": "Countdown, New World, Chemist Warehouse", "score": 91, "why": "NZ made, high protection"},
+        "vitamin": {"name": "Radiance or GO Healthy", "retailer": "Chemist Warehouse NZ, Countdown", "score": 86, "why": "NZ brands"},
+        "default": {"name": "Check Chemist Warehouse NZ", "retailer": "Chemist Warehouse NZ", "score": None, "why": "Good range"}
+    },
+    "CA": {
+        "cleanser": {"name": "CeraVe Hydrating Cleanser", "retailer": "Shoppers Drug Mart, Walmart", "score": 92, "why": "Widely available"},
+        "moisturizer": {"name": "CeraVe Moisturizing Cream", "retailer": "Shoppers Drug Mart, Walmart, Costco", "score": 94, "why": "Excellent formula"},
+        "vitamin": {"name": "Jamieson or Webber Naturals", "retailer": "Shoppers Drug Mart, Costco", "score": 87, "why": "Canadian brands, NPN certified"},
+        "default": {"name": "Check Shoppers Drug Mart", "retailer": "Shoppers Drug Mart", "score": None, "why": "Wide selection"}
     },
     "OTHER": {
-        "name": "International",
-        "retailers": [
-            {"name": "iHerb", "search_url": "https://www.iherb.com/search?kw={query}", "type": "supplements"},
-            {"name": "Amazon", "search_url": "https://www.amazon.com/s?k={query}", "type": "general"}
-        ]
+        "cleanser": {"name": "CeraVe Hydrating Cleanser", "retailer": "Local pharmacy, iHerb", "score": 92, "why": "Internationally available"},
+        "moisturizer": {"name": "CeraVe or Cetaphil", "retailer": "Local pharmacy, Amazon, iHerb", "score": 92, "why": "Global brands"},
+        "vitamin": {"name": "NOW Foods or Nature Made", "retailer": "iHerb, Amazon", "score": 88, "why": "Ships internationally"},
+        "default": {"name": "Check iHerb.com", "retailer": "iHerb (ships globally)", "score": None, "why": "International shipping"}
     }
 }
 
-def get_retailer_search_links(product_name, country_code):
-    """Generate search links for local retailers"""
-    retailers = RETAILER_APIS.get(country_code, RETAILER_APIS['OTHER'])['retailers']
-    encoded_name = urllib.parse.quote(product_name)
+def get_alternative(product_name, product_type, product_category, country_code):
+    """Get country-specific alternative that's actually available locally"""
+    country_alts = ALTERNATIVES_BY_COUNTRY.get(country_code, ALTERNATIVES_BY_COUNTRY['OTHER'])
+    search = f"{product_name} {product_type or ''}".lower()
     
-    links = []
-    for r in retailers:
-        links.append({
-            'name': r['name'],
-            'url': r['search_url'].format(query=encoded_name),
-            'type': r['type']
-        })
-    return links
+    # Find by product type
+    for key in country_alts:
+        if key in search and key != 'default':
+            alt = country_alts[key]
+            # Don't recommend same product
+            if alt['name'].lower() not in search.lower():
+                return alt
+    
+    # Check category defaults
+    if product_category == 'CATEGORY_SUPPLEMENT':
+        return country_alts.get('supplement', country_alts.get('vitamin', country_alts['default']))
+    elif product_category == 'CATEGORY_COSMETIC':
+        for term in ['cleanser', 'moisturizer', 'serum', 'shampoo', 'lotion', 'sunscreen', 'deodorant']:
+            if term in search:
+                return country_alts.get(term, country_alts['default'])
+        return country_alts.get('moisturizer', country_alts['default'])
+    elif product_category == 'CATEGORY_FOOD':
+        for term in ['bar', 'cereal', 'snack', 'protein']:
+            if term in search:
+                return country_alts.get(term if term != 'bar' else 'protein_bar', country_alts['default'])
+    
+    return country_alts['default']
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BETTER LOCATION DETECTION - Multiple Fallbacks
+# ═══════════════════════════════════════════════════════════════════════════════
+RETAILERS_DISPLAY = {
+    "AU": ["Chemist Warehouse", "Priceline", "Woolworths", "Coles"],
+    "US": ["CVS", "Walgreens", "Target", "Walmart"],
+    "GB": ["Boots", "Superdrug", "Tesco", "Sainsbury's"],
+    "NZ": ["Chemist Warehouse NZ", "Countdown", "Unichem"],
+    "CA": ["Shoppers Drug Mart", "Walmart", "Costco"],
+    "DE": ["dm", "Rossmann", "Müller"],
+    "FR": ["Sephora", "Monoprix", "Carrefour"],
+    "OTHER": ["Local pharmacy", "iHerb", "Amazon"]
+}
+
+def detect_location_enhanced():
+    """Enhanced location detection with multiple fallbacks"""
+    location_services = [
+        # Primary: ipapi.co (usually most accurate)
+        {
+            'url': 'https://ipapi.co/json/',
+            'extract': lambda d: (d.get('city'), d.get('country_name'), d.get('country_code'))
+        },
+        # Fallback 1: ip-api.com
+        {
+            'url': 'https://ip-api.com/json/',
+            'extract': lambda d: (d.get('city'), d.get('country'), d.get('countryCode'))
+        },
+        # Fallback 2: ipinfo.io
+        {
+            'url': 'https://ipinfo.io/json',
+            'extract': lambda d: (d.get('city'), d.get('country'), d.get('country'))
+        },
+        # Fallback 3: geolocation-db
+        {
+            'url': 'https://geolocation-db.com/json/',
+            'extract': lambda d: (d.get('city'), d.get('country_name'), d.get('country_code'))
+        }
+    ]
+    
+    for service in location_services:
+        try:
+            r = requests.get(service['url'], timeout=5)
+            if r.ok:
+                d = r.json()
+                city, country, code = service['extract'](d)
+                
+                # Validate the response
+                if city and city not in ['', 'Unknown', None, 'Not found', 'undefined']:
+                    # Normalize country code
+                    if code and len(code) == 2:
+                        code = code.upper()
+                    else:
+                        # Try to map country name to code
+                        country_map = {
+                            'australia': 'AU', 'united states': 'US', 'usa': 'US', 'united kingdom': 'GB',
+                            'uk': 'GB', 'new zealand': 'NZ', 'canada': 'CA', 'germany': 'DE', 'france': 'FR',
+                            'japan': 'JP', 'singapore': 'SG', 'hong kong': 'HK'
+                        }
+                        code = country_map.get((country or '').lower(), 'OTHER')
+                    
+                    return {
+                        'city': city,
+                        'country': country or '',
+                        'code': code,
+                        'retailers': RETAILERS_DISPLAY.get(code, RETAILERS_DISPLAY['OTHER'])
+                    }
+        except Exception:
+            continue
+    
+    # Ultimate fallback - ask user
+    return {
+        'city': 'Unknown',
+        'country': 'Unknown',
+        'code': 'OTHER',
+        'retailers': RETAILERS_DISPLAY['OTHER'],
+        'needs_manual': True
+    }
 
 def get_verdict(score):
     if score >= 90: return "EXCEPTIONAL"
@@ -606,74 +458,74 @@ def get_verdict_display(verdict):
         'AVOID': {'icon': '✗', 'text': 'AVOID', 'color': '#ef4444'},
         'UNCLEAR': {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'}
     }.get(verdict, {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'})
-
-RETAILERS_DISPLAY = {
-    "AU": ["Chemist Warehouse", "Priceline", "Woolworths", "Coles"],
-    "US": ["CVS", "Walgreens", "Target", "Walmart", "Whole Foods"],
-    "GB": ["Boots", "Superdrug", "Tesco", "Sainsbury's"],
-    "NZ": ["Chemist Warehouse", "Countdown", "Unichem"],
-    "CA": ["Shoppers Drug Mart", "Walmart", "London Drugs"],
-    "OTHER": ["Local pharmacy", "Health food store", "iHerb", "Amazon"]
-}
-
-def get_location():
-    """Auto-detect location from IP"""
-    services = [
-        ('https://ipapi.co/json/', lambda d: (d.get('city'), d.get('country_name'), d.get('country_code'))),
-        ('https://ip-api.com/json/', lambda d: (d.get('city'), d.get('country'), d.get('countryCode'))),
-    ]
-    for url, extract in services:
-        try:
-            r = requests.get(url, timeout=5)
-            if r.ok:
-                d = r.json()
-                city, country, code = extract(d)
-                if city and city not in ['', 'Unknown', None]:
-                    return {'city': city, 'country': country or '', 'code': code or 'OTHER', 
-                            'retailers': RETAILERS_DISPLAY.get(code, RETAILERS_DISPLAY['OTHER'])}
-        except: continue
-    return {'city': 'Your City', 'country': 'Your Country', 'code': 'OTHER', 'retailers': RETAILERS_DISPLAY['OTHER']}
 # ═══════════════════════════════════════════════════════════════════════════════
-# DATABASE FUNCTIONS
+# DATABASE - Score Consistency System
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def normalize_product_name(name):
-    return re.sub(r'[^\w\s]', '', name.lower()).strip() if name else ""
+    """Normalize for consistent matching"""
+    if not name: return ""
+    # Remove special chars, extra spaces, make lowercase
+    return re.sub(r'[^\w\s]', '', name.lower()).strip()
+
+def get_product_hash(product_name, brand=""):
+    """Create unique hash for product identification"""
+    normalized = normalize_product_name(f"{brand} {product_name}")
+    return hashlib.md5(normalized.encode()).hexdigest()[:16]
 
 def init_db():
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
+    
+    # Main scans table
     c.execute('''CREATE TABLE IF NOT EXISTS scans (
         id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id TEXT UNIQUE, user_id TEXT,
         ts DATETIME DEFAULT CURRENT_TIMESTAMP, product TEXT, brand TEXT,
-        product_category TEXT, product_type TEXT, score INTEGER, verdict TEXT,
-        ingredients TEXT, violations TEXT, bonuses TEXT, fine_print_alerts TEXT,
-        thumb BLOB, favorite INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0
+        product_hash TEXT, product_category TEXT, product_type TEXT,
+        score INTEGER, verdict TEXT, ingredients TEXT, violations TEXT,
+        bonuses TEXT, notifications TEXT, thumb BLOB, favorite INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0
     )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS learned_products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, product_name_lower TEXT UNIQUE,
-        product_name TEXT, brand TEXT, product_type TEXT, avg_score REAL,
-        scan_count INTEGER DEFAULT 1, ingredients TEXT, violations TEXT,
-        last_scanned DATETIME DEFAULT CURRENT_TIMESTAMP
+    
+    # SCORE CONSISTENCY: Store verified product scores
+    c.execute('''CREATE TABLE IF NOT EXISTS verified_products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_hash TEXT UNIQUE,
+        product_name TEXT,
+        brand TEXT,
+        verified_score INTEGER,
+        scan_count INTEGER DEFAULT 1,
+        product_category TEXT,
+        ingredients TEXT,
+        violations TEXT,
+        last_verified DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
+    
+    # Barcode cache
     c.execute('''CREATE TABLE IF NOT EXISTS barcode_cache (
         barcode TEXT PRIMARY KEY, product_name TEXT, brand TEXT, ingredients TEXT,
         product_type TEXT, categories TEXT, nutrition TEXT, image_url TEXT,
-        source TEXT, confidence TEXT, last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+        source TEXT, last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
+    
+    # User preferences
     c.execute('CREATE TABLE IF NOT EXISTS allergies (a TEXT PRIMARY KEY)')
     c.execute('CREATE TABLE IF NOT EXISTS profiles (p TEXT PRIMARY KEY)')
+    
+    # Stats
     c.execute('''CREATE TABLE IF NOT EXISTS stats (
         id INTEGER PRIMARY KEY DEFAULT 1, scans INTEGER DEFAULT 0, avoided INTEGER DEFAULT 0,
         streak INTEGER DEFAULT 0, best_streak INTEGER DEFAULT 0, last_scan DATE
     )''')
     c.execute('INSERT OR IGNORE INTO stats (id) VALUES (1)')
+    
+    # User info with location
     c.execute('''CREATE TABLE IF NOT EXISTS user_info (
         id INTEGER PRIMARY KEY DEFAULT 1, user_id TEXT, city TEXT, country TEXT, country_code TEXT
     )''')
     c.execute('SELECT user_id FROM user_info WHERE id=1')
     if not c.fetchone():
         c.execute('INSERT INTO user_info (id, user_id) VALUES (1, ?)', (str(uuid.uuid4()),))
+    
     conn.commit()
     conn.close()
 
@@ -697,13 +549,9 @@ def get_saved_location():
     return None
 
 def save_location(city, country):
-    code_map = {'australia': 'AU', 'united states': 'US', 'usa': 'US', 'united kingdom': 'GB', 'new zealand': 'NZ', 'canada': 'CA'}
-    country_lower = (country or '').lower()
-    code = 'OTHER'
-    for key, val in code_map.items():
-        if key in country_lower:
-            code = val
-            break
+    country_map = {'australia': 'AU', 'united states': 'US', 'usa': 'US', 'united kingdom': 'GB', 'uk': 'GB',
+                   'new zealand': 'NZ', 'canada': 'CA', 'germany': 'DE', 'france': 'FR'}
+    code = country_map.get((country or '').lower(), 'OTHER')
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
     c.execute('UPDATE user_info SET city=?, country=?, country_code=? WHERE id=1', (city, country, code))
@@ -711,79 +559,80 @@ def save_location(city, country):
     conn.close()
     return code
 
-def learn_product(result):
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCORE CONSISTENCY - Same Product = Same Score
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_verified_score(product_name, brand=""):
+    """Get consistent score for previously scanned product"""
     try:
-        name = result.get('product_name', '')
-        name_lower = normalize_product_name(name)
-        if not name_lower or len(name_lower) < 3: return
+        product_hash = get_product_hash(product_name, brand)
         conn = sqlite3.connect(LOCAL_DB)
         c = conn.cursor()
-        c.execute('SELECT avg_score, scan_count FROM learned_products WHERE product_name_lower = ?', (name_lower,))
+        c.execute('''SELECT verified_score, scan_count, violations FROM verified_products 
+                    WHERE product_hash = ?''', (product_hash,))
+        r = c.fetchone()
+        conn.close()
+        
+        if r and r[1] >= 2:  # Only use if scanned 2+ times
+            return {'score': r[0], 'scan_count': r[1], 'violations': json.loads(r[2]) if r[2] else []}
+    except:
+        pass
+    return None
+
+def save_verified_score(result):
+    """Save/update verified score for consistency"""
+    try:
+        product_name = result.get('product_name', '')
+        brand = result.get('brand', '')
+        product_hash = get_product_hash(product_name, brand)
+        score = result.get('score', 70)
+        
+        conn = sqlite3.connect(LOCAL_DB)
+        c = conn.cursor()
+        
+        c.execute('SELECT verified_score, scan_count FROM verified_products WHERE product_hash = ?', (product_hash,))
         existing = c.fetchone()
+        
         if existing:
-            old_avg, count = existing
-            new_count = count + 1
-            new_avg = ((old_avg * count) + result.get('score', 70)) / new_count
-            c.execute('UPDATE learned_products SET avg_score=?, scan_count=?, last_scanned=CURRENT_TIMESTAMP, ingredients=?, violations=? WHERE product_name_lower=?',
-                      (new_avg, new_count, json.dumps(result.get('ingredients', [])), json.dumps(result.get('violations', [])), name_lower))
+            # Average with existing, weighted toward more scans
+            old_score, count = existing
+            # After 3 scans, lock in the score more
+            if count >= 3:
+                weight = 0.9  # 90% old, 10% new
+            else:
+                weight = count / (count + 1)
+            new_score = int(old_score * weight + score * (1 - weight))
+            c.execute('''UPDATE verified_products SET verified_score=?, scan_count=?, 
+                        last_verified=CURRENT_TIMESTAMP, violations=? WHERE product_hash=?''',
+                      (new_score, count + 1, json.dumps(result.get('violations', [])), product_hash))
         else:
-            c.execute('INSERT INTO learned_products (product_name_lower, product_name, brand, product_type, avg_score, ingredients, violations) VALUES (?,?,?,?,?,?,?)',
-                      (name_lower, name, result.get('brand', ''), result.get('product_type', ''), result.get('score', 70),
+            c.execute('''INSERT INTO verified_products (product_hash, product_name, brand, verified_score, 
+                        product_category, ingredients, violations) VALUES (?,?,?,?,?,?,?)''',
+                      (product_hash, product_name, brand, score, result.get('product_category', ''),
                        json.dumps(result.get('ingredients', [])), json.dumps(result.get('violations', []))))
+        
         conn.commit()
         conn.close()
-    except: pass
-
-def get_learned_product(product_name):
-    try:
-        name_lower = normalize_product_name(product_name)
-        if not name_lower: return None
-        conn = sqlite3.connect(LOCAL_DB)
-        c = conn.cursor()
-        c.execute('SELECT product_name, brand, product_type, avg_score, scan_count FROM learned_products WHERE product_name_lower = ?', (name_lower,))
-        r = c.fetchone()
-        conn.close()
-        if r: return {'product_name': r[0], 'brand': r[1], 'product_type': r[2], 'score': int(r[3]), 'scan_count': r[4]}
-    except: pass
-    return None
-
-def cache_barcode(barcode, data):
-    try:
-        conn = sqlite3.connect(LOCAL_DB)
-        c = conn.cursor()
-        c.execute('''INSERT OR REPLACE INTO barcode_cache (barcode, product_name, brand, ingredients, product_type, categories, nutrition, image_url, source, confidence, last_updated) 
-                     VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)''',
-                  (barcode, data.get('name', ''), data.get('brand', ''), data.get('ingredients', ''),
-                   data.get('product_type', ''), data.get('categories', ''), json.dumps(data.get('nutrition', {})),
-                   data.get('image_url', ''), data.get('source', ''), data.get('confidence', 'medium')))
-        conn.commit()
-        conn.close()
-    except: pass
-
-def get_cached_barcode(barcode):
-    try:
-        conn = sqlite3.connect(LOCAL_DB)
-        c = conn.cursor()
-        c.execute('SELECT product_name, brand, ingredients, product_type, categories, nutrition, image_url, source, confidence FROM barcode_cache WHERE barcode = ?', (barcode,))
-        r = c.fetchone()
-        conn.close()
-        if r and r[0]:
-            return {'found': True, 'name': r[0], 'brand': r[1], 'ingredients': r[2], 'product_type': r[3],
-                    'categories': r[4], 'nutrition': json.loads(r[5]) if r[5] else {}, 'image_url': r[6],
-                    'source': r[7], 'confidence': r[8], 'cached': True}
-    except: pass
-    return None
+    except:
+        pass
 
 def save_scan(result, user_id, thumb=None):
     sid = f"HW-{uuid.uuid4().hex[:8].upper()}"
+    product_hash = get_product_hash(result.get('product_name', ''), result.get('brand', ''))
+    
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
-    c.execute('''INSERT INTO scans (scan_id, user_id, product, brand, product_category, product_type, score, verdict, ingredients, violations, bonuses, fine_print_alerts, thumb) 
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-              (sid, user_id, result.get('product_name', ''), result.get('brand', ''), result.get('product_category', ''),
-               result.get('product_type', ''), result.get('score', 0), result.get('verdict', ''),
+    c.execute('''INSERT INTO scans (scan_id, user_id, product, brand, product_hash, product_category, 
+                product_type, score, verdict, ingredients, violations, bonuses, notifications, thumb) 
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+              (sid, user_id, result.get('product_name', ''), result.get('brand', ''), product_hash,
+               result.get('product_category', ''), result.get('product_type', ''),
+               result.get('score', 0), result.get('verdict', ''),
                json.dumps(result.get('ingredients', [])), json.dumps(result.get('violations', [])),
-               json.dumps(result.get('bonuses', [])), json.dumps(result.get('fine_print_alerts', [])), thumb))
+               json.dumps(result.get('bonuses', [])), json.dumps(result.get('notifications', [])), thumb))
+    
+    # Update stats
     today = datetime.now().date()
     c.execute('SELECT scans, avoided, streak, best_streak, last_scan FROM stats WHERE id=1')
     r = c.fetchone()
@@ -797,10 +646,14 @@ def save_scan(result, user_id, thumb=None):
         else: streak = 1
         best = max(best, streak)
         if result.get('verdict') == 'AVOID': avoided += 1
-        c.execute('UPDATE stats SET scans=?, avoided=?, streak=?, best_streak=?, last_scan=? WHERE id=1', (scans + 1, avoided, streak, best, today.isoformat()))
+        c.execute('UPDATE stats SET scans=?, avoided=?, streak=?, best_streak=?, last_scan=? WHERE id=1',
+                  (scans + 1, avoided, streak, best, today.isoformat()))
+    
     conn.commit()
     conn.close()
-    learn_product(result)
+    
+    # Save for consistency
+    save_verified_score(result)
     return sid
 
 def get_history(user_id, n=30):
@@ -858,74 +711,107 @@ def toggle_favorite(db_id, current):
     conn.commit()
     conn.close()
 
-def supa_ok(): return bool(SUPABASE_URL and SUPABASE_KEY)
+# ═══════════════════════════════════════════════════════════════════════════════
+# BARCODE SYSTEM - Enhanced Accuracy
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def supa_request(method, table, data=None, params=None):
-    if not supa_ok(): return None
+def cache_barcode(barcode, data):
     try:
-        url = f"{SUPABASE_URL}/rest/v1/{table}"
-        headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
-        if method == "GET": r = requests.get(url, headers=headers, params=params, timeout=5)
-        elif method == "POST": r = requests.post(url, headers=headers, json=data, timeout=5)
-        elif method == "PATCH": r = requests.patch(url, headers=headers, json=data, params=params, timeout=5)
-        else: return None
-        return r.json() if r.ok and r.text else (True if r.ok else None)
+        conn = sqlite3.connect(LOCAL_DB)
+        c = conn.cursor()
+        c.execute('''INSERT OR REPLACE INTO barcode_cache (barcode, product_name, brand, ingredients, 
+                    product_type, categories, nutrition, image_url, source, last_updated) 
+                    VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)''',
+                  (barcode, data.get('name', ''), data.get('brand', ''), data.get('ingredients', ''),
+                   data.get('product_type', ''), data.get('categories', ''),
+                   json.dumps(data.get('nutrition', {})), data.get('image_url', ''), data.get('source', '')))
+        conn.commit()
+        conn.close()
+    except: pass
+
+def get_cached_barcode(barcode):
+    try:
+        conn = sqlite3.connect(LOCAL_DB)
+        c = conn.cursor()
+        c.execute('SELECT product_name, brand, ingredients, product_type, categories, nutrition, image_url, source FROM barcode_cache WHERE barcode = ?', (barcode,))
+        r = c.fetchone()
+        conn.close()
+        if r and r[0]:
+            return {'found': True, 'name': r[0], 'brand': r[1], 'ingredients': r[2], 'product_type': r[3],
+                    'categories': r[4], 'nutrition': json.loads(r[5]) if r[5] else {}, 'image_url': r[6],
+                    'source': r[7], 'cached': True}
     except: pass
     return None
-
-def cloud_log_scan(result, city, country, user_id):
-    if supa_ok():
-        try: supa_request("POST", "scans_log", {"product_name": result.get('product_name', ''), "brand": result.get('brand', ''), "score": result.get('score', 0), "verdict": result.get('verdict', ''), "city": city, "country": country, "user_id": user_id})
-        except: pass
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PERFECT BARCODE SYSTEM - Multiple Sources + AI Enhancement
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def preprocess_barcode_image(image):
     try:
         gray = image.convert('L')
         enhancer = ImageEnhance.Contrast(gray)
-        return enhancer.enhance(2.5).filter(ImageFilter.SHARPEN)
-    except: return image
+        enhanced = enhancer.enhance(2.5)
+        sharpened = enhanced.filter(ImageFilter.SHARPEN)
+        return sharpened
+    except:
+        return image
 
 def try_decode_barcode_pyzbar(image_file):
     try:
         from pyzbar import pyzbar
         image_file.seek(0)
         img = Image.open(image_file)
-        for proc_img in [img, preprocess_barcode_image(img), img.convert('L'), img.rotate(90), img.rotate(270)]:
+        
+        # Try multiple processing methods
+        for proc_img in [img, preprocess_barcode_image(img), img.convert('L'), 
+                         img.rotate(90, expand=True), img.rotate(270, expand=True),
+                         img.rotate(180)]:
             try:
                 barcodes = pyzbar.decode(proc_img)
-                if barcodes: return barcodes[0].data.decode('utf-8')
+                if barcodes:
+                    return barcodes[0].data.decode('utf-8')
             except: continue
     except: pass
     return None
 
 def ai_read_barcode(image_file):
+    """Use Gemini AI to read barcode - enhanced accuracy"""
     if not GEMINI_API_KEY: return None
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-2.0-flash-exp")
         image_file.seek(0)
         img = Image.open(image_file)
+        
         resp = model.generate_content([
-            "Find and read the barcode in this image. Return ONLY the numeric digits beneath the barcode lines. "
-            "If there are multiple barcodes, return the main product barcode (usually UPC/EAN). "
-            "Return ONLY digits, no spaces or other characters. If unreadable, return: NONE", img
+            """Look at this image and find the BARCODE. 
+            Read the numeric digits printed BELOW the barcode lines.
+            Common formats:
+            - UPC-A: 12 digits
+            - EAN-13: 13 digits
+            - EAN-8: 8 digits
+            
+            Return ONLY the digits with NO spaces, dashes, or other characters.
+            If you cannot read the barcode clearly, return: NONE
+            
+            Example good responses: 9300617003212, 041570054369
+            Example bad responses: "The barcode is...", "9300 6170 0321"
+            """, img
         ])
+        
         text = resp.text.strip().upper()
-        if 'NONE' in text or 'CANNOT' in text or 'UNREADABLE' in text: return None
+        if 'NONE' in text or 'CANNOT' in text or 'UNREADABLE' in text or 'NOT VISIBLE' in text:
+            return None
+        
+        # Extract only digits
         digits = re.sub(r'\D', '', text)
-        if 8 <= len(digits) <= 14: return digits
+        if 8 <= len(digits) <= 14:
+            return digits
     except: pass
     return None
 
 def lookup_barcode_all_sources(barcode):
-    """Search ALL available databases for maximum accuracy"""
+    """Search ALL databases for complete accuracy"""
     results = []
     
-    # 1. Open Food Facts (Global food database)
+    # 1. Open Food Facts (global food)
     try:
         r = requests.get(f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json", timeout=12)
         if r.ok:
@@ -943,7 +829,7 @@ def lookup_barcode_all_sources(barcode):
                     })
     except: pass
     
-    # 2. Open Beauty Facts (Cosmetics)
+    # 2. Open Beauty Facts (cosmetics)
     try:
         r = requests.get(f"https://world.openbeautyfacts.org/api/v0/product/{barcode}.json", timeout=12)
         if r.ok:
@@ -961,7 +847,7 @@ def lookup_barcode_all_sources(barcode):
                     })
     except: pass
     
-    # 3. Open Products Facts (Household)
+    # 3. Open Products Facts (household)
     try:
         r = requests.get(f"https://world.openproductsfacts.org/api/v0/product/{barcode}.json", timeout=12)
         if r.ok:
@@ -977,7 +863,7 @@ def lookup_barcode_all_sources(barcode):
                     })
     except: pass
     
-    # 4. UPC Item DB (General - good for supplements, electronics)
+    # 4. UPC Item DB (general)
     try:
         r = requests.get(f"https://api.upcitemdb.com/prod/trial/lookup?upc={barcode}", timeout=12)
         if r.ok:
@@ -993,318 +879,210 @@ def lookup_barcode_all_sources(barcode):
                 })
     except: pass
     
-    # 5. Nutritionix (Food database with detailed nutrition)
-    try:
-        r = requests.get(f"https://trackapi.nutritionix.com/v2/search/item?upc={barcode}",
-                        headers={"x-app-id": "common", "x-app-key": "common"}, timeout=10)
-        if r.ok:
-            d = r.json()
-            if d.get('foods'):
-                food = d['foods'][0]
-                results.append({
-                    'found': True, 'name': food.get('food_name', ''), 'brand': food.get('brand_name', ''),
-                    'nutrition': {'calories': food.get('nf_calories'), 'protein': food.get('nf_protein'),
-                                 'carbs': food.get('nf_total_carbohydrate'), 'fat': food.get('nf_total_fat'),
-                                 'sugar': food.get('nf_sugars'), 'sodium': food.get('nf_sodium')},
-                    'product_type': 'food', 'source': 'Nutritionix', 'confidence': 'high'
-                })
-    except: pass
-    
-    # Return BEST result (prioritize: has ingredients > high confidence > longer name)
+    # Return best result
     if results:
-        results.sort(key=lambda x: (
-            bool(x.get('ingredients')),
-            x.get('confidence') == 'high',
-            len(x.get('name', ''))
-        ), reverse=True)
+        results.sort(key=lambda x: (bool(x.get('ingredients')), x.get('confidence') == 'high', len(x.get('name', ''))), reverse=True)
         return results[0]
     
     return {'found': False}
 
 def smart_barcode_lookup(barcode, progress_callback=None):
-    """Perfect barcode lookup with caching"""
     if progress_callback: progress_callback(0.1, "Checking cache...")
-    
     cached = get_cached_barcode(barcode)
     if cached:
-        if progress_callback: progress_callback(1.0, "✓ Found in cache!")
+        if progress_callback: progress_callback(1.0, "✓ Found!")
         return cached
     
-    if progress_callback: progress_callback(0.3, "Searching global databases...")
-    
+    if progress_callback: progress_callback(0.3, "Searching databases...")
     result = lookup_barcode_all_sources(barcode)
     
     if result.get('found'):
-        if progress_callback: progress_callback(0.9, "✓ Product found!")
+        if progress_callback: progress_callback(0.9, "✓ Found!")
         cache_barcode(barcode, result)
         return result
     
-    if progress_callback: progress_callback(1.0, "Not in databases - use photo scan")
+    if progress_callback: progress_callback(1.0, "Not found")
     return {'found': False, 'barcode': barcode}
+
+def supa_ok(): return bool(SUPABASE_URL and SUPABASE_KEY)
+
+def cloud_log_scan(result, city, country, user_id):
+    if supa_ok():
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/scans_log"
+            headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json"}
+            requests.post(url, headers=headers, json={
+                "product_name": result.get('product_name', ''), "brand": result.get('brand', ''),
+                "score": result.get('score', 0), "verdict": result.get('verdict', ''),
+                "city": city, "country": country, "user_id": user_id
+            }, timeout=5)
+        except: pass
 # ═══════════════════════════════════════════════════════════════════════════════
-# MODULE 2 & 3: CLAIM VS FACT ENGINE + FINE PRINT SCANNER
+# HEALTH ALERTS - Notifications Only (Don't Affect Score)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def check_fine_print_alerts(full_text, user_profiles, user_allergies, product_category):
+def check_profile_notifications(ingredients, full_text, user_profiles, user_allergies, product_category):
     """
-    MODULE 3: Deep Scan Profile Guard
-    Scans entire text for exclusionary phrases beyond just ingredients
+    Generate NOTIFICATIONS based on user profile.
+    These are informational alerts - they do NOT affect the score.
     """
-    alerts = []
-    if not full_text: return alerts
-    text_lower = full_text.lower()
+    notifications = []
+    if not ingredients and not full_text:
+        return notifications
     
-    # Check profiles
+    ing_text = (' '.join(ingredients) if isinstance(ingredients, list) else ingredients or '').lower()
+    full_lower = (full_text or '').lower()
+    
+    # Check health profiles
     for profile_key in user_profiles:
-        if profile_key not in HEALTH_PROFILES: continue
+        if profile_key not in HEALTH_PROFILES:
+            continue
         profile = HEALTH_PROFILES[profile_key]
         
-        # Check if profile applies to this category
-        if product_category not in profile.get('applies_to', []): continue
+        # Only check if category applies
+        if product_category not in profile.get('applies_to', []):
+            continue
         
-        # Scan for fine print phrases
-        for phrase in profile.get('fine_print_scan', []):
-            if phrase.lower() in text_lower:
-                alerts.append({
-                    'type': 'fine_print',
-                    'profile': profile_key,
-                    'profile_name': profile['name'],
-                    'icon': profile['icon'],
-                    'matched_phrase': phrase,
-                    'severity': 'high',
-                    'message': f"Fine print warning: \"{phrase}\" detected"
-                })
+        # Check ingredient flags
+        matched = False
+        for flag in profile.get('ingredient_flags', []):
+            if flag.lower() in ing_text:
+                matched = True
                 break
+        
+        # Check fine print
+        if not matched:
+            for phrase in profile.get('fine_print_scan', []):
+                if phrase.lower() in full_lower:
+                    matched = True
+                    break
+        
+        if matched:
+            notifications.append({
+                'type': 'profile',
+                'key': profile_key,
+                'name': profile['name'],
+                'icon': profile['icon'],
+                'message': profile.get('notification', f"Contains flagged ingredients for {profile['name']}"),
+                'severity': 'warning'
+            })
     
     # Check allergens
     for allergy_key in user_allergies:
-        if allergy_key not in ALLERGENS: continue
+        if allergy_key not in ALLERGENS:
+            continue
         allergen = ALLERGENS[allergy_key]
         
-        if product_category not in allergen.get('applies_to', []): continue
+        if product_category not in allergen.get('applies_to', []):
+            continue
         
-        # Fine print patterns for allergens
-        fine_print_patterns = [
-            f"may contain {allergy_key}", f"traces of {allergy_key}",
-            f"processed in a facility that handles {allergy_key}",
-            f"manufactured on shared equipment with {allergy_key}"
-        ]
         for trigger in allergen['triggers']:
-            fine_print_patterns.extend([
-                f"may contain {trigger}", f"traces of {trigger}"
-            ])
-        
-        for pattern in fine_print_patterns:
-            if pattern in text_lower:
-                alerts.append({
-                    'type': 'allergen_fine_print',
-                    'allergen': allergy_key,
-                    'allergen_name': allergen['name'],
+            if trigger.lower() in ing_text or f"may contain {trigger.lower()}" in full_lower:
+                notifications.append({
+                    'type': 'allergen',
+                    'key': allergy_key,
+                    'name': allergen['name'],
                     'icon': allergen['icon'],
-                    'matched_phrase': pattern,
-                    'severity': 'high',
-                    'message': f"Fine print: \"{pattern}\" detected"
+                    'message': f"🚨 Contains or may contain {allergen['name'].upper()}!",
+                    'severity': 'danger'
                 })
                 break
     
-    return alerts
-
-def check_health_alerts(ingredients, user_allergies, user_profiles, product_category):
-    """Context-aware health alerts - only applies relevant rules based on category"""
-    alerts = []
-    if not ingredients: return alerts
-    ing_text = ' '.join(ingredients).lower() if isinstance(ingredients, list) else ingredients.lower()
-    
-    # Allergens
-    for allergy_key in user_allergies:
-        if allergy_key not in ALLERGENS: continue
-        allergen = ALLERGENS[allergy_key]
-        if product_category not in allergen.get('applies_to', []): continue
-        
-        for trigger in allergen['triggers']:
-            if trigger.lower() in ing_text:
-                alerts.append({
-                    'type': 'allergy', 'name': allergen['name'], 'icon': allergen['icon'],
-                    'trigger': trigger, 'severity': 'high',
-                    'message': f"Contains {trigger}"
-                })
-                break
-    
-    # Health profiles - CONTEXT GATEKEEPER
-    for profile_key in user_profiles:
-        if profile_key not in HEALTH_PROFILES: continue
-        profile = HEALTH_PROFILES[profile_key]
-        
-        # CRITICAL: Only apply if category matches
-        if product_category not in profile.get('applies_to', []): continue
-        
-        for flag in profile.get('ingredient_flags', []):
-            if flag.lower() in ing_text:
-                alerts.append({
-                    'type': 'profile', 'name': profile['name'], 'icon': profile['icon'],
-                    'trigger': flag, 'severity': 'medium',
-                    'message': profile.get('alert_template', f"Contains {flag}")
-                })
-                break
-    
-    return alerts
+    return notifications
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ALTERNATIVES DATABASE
-# ═══════════════════════════════════════════════════════════════════════════════
-ALTERNATIVES = {
-    "cleanser": {"name": "CeraVe Hydrating Cleanser", "why": "Fragrance-free, ceramides, gentle", "score": 92},
-    "moisturizer": {"name": "CeraVe Moisturizing Cream", "why": "Ceramides, hyaluronic acid, fragrance-free", "score": 94},
-    "serum": {"name": "The Ordinary Niacinamide 10%", "why": "Transparent formula, effective concentration", "score": 91},
-    "sunscreen": {"name": "EltaMD UV Clear SPF 46", "why": "Zinc oxide, fragrance-free", "score": 93},
-    "shampoo": {"name": "Free & Clear Shampoo", "why": "No sulfates, fragrance, parabens", "score": 94},
-    "body_lotion": {"name": "Vanicream Moisturizing Lotion", "why": "No dyes, fragrance, parabens", "score": 95},
-    "deodorant": {"name": "Native Deodorant (Unscented)", "why": "No aluminum, parabens", "score": 86},
-    "protein_bar": {"name": "RXBAR", "why": "Simple ingredients, no added sugar", "score": 84},
-    "cereal": {"name": "Nature's Path Organic", "why": "USDA organic, no artificial colors", "score": 85},
-    "snack": {"name": "Larabar", "why": "Whole food ingredients only", "score": 82},
-    "vitamin": {"name": "Thorne Research", "why": "Third-party tested, bioavailable forms", "score": 94},
-    "supplement": {"name": "NOW Foods", "why": "GMP certified, third-party tested", "score": 90},
-    "protein": {"name": "Momentous Whey", "why": "NSF Certified for Sport", "score": 91},
-    "default": {"name": "Check EWG.org", "why": "Independent safety ratings", "score": None}
-}
-
-def get_alternative(product_name, product_type, product_category):
-    search = f"{product_name} {product_type or ''}".lower()
-    for key in ALTERNATIVES:
-        if key in search and key != 'default':
-            alt = ALTERNATIVES[key]
-            if alt['name'].lower() not in search: return alt
-    if product_category == 'CATEGORY_SUPPLEMENT': return ALTERNATIVES.get('supplement', ALTERNATIVES['default'])
-    if product_category == 'CATEGORY_COSMETIC':
-        for term in ['cleanser', 'moisturizer', 'serum', 'shampoo', 'lotion']:
-            if term in search: return ALTERNATIVES.get(term, ALTERNATIVES['default'])
-    if product_category == 'CATEGORY_FOOD':
-        for term in ['bar', 'cereal', 'snack', 'protein']:
-            if term in search: return ALTERNATIVES.get(term if term != 'bar' else 'protein_bar', ALTERNATIVES['default'])
-    return ALTERNATIVES['default']
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# AI ANALYSIS WITH CONTEXT GATEKEEPER
+# AI ANALYSIS - With Score Consistency
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ANALYSIS_PROMPT = """You are HonestWorld's Context-Aware Integrity Engine.
 
-## CRITICAL: ZERO HALLUCINATION POLICY
-- ONLY report what you can PROVE from the image
-- If you cannot read something clearly, say "Unable to verify"
-- Do NOT make assumptions about ingredients not visible
+## CRITICAL: CONSISTENT SCORING
+The same product MUST get the same score. Base your analysis on objective facts only.
 
-## STEP 1: CONTEXT GATEKEEPER - Classify First
-Determine category BEFORE applying any rules:
-- CATEGORY_FOOD: Edible items, drinks (has Nutrition Facts)
-- CATEGORY_SUPPLEMENT: Vitamins, supplements (has Supplement Facts)
-- CATEGORY_COSMETIC: Skincare, makeup, soap, shampoo (for external use)
-- CATEGORY_ELECTRONICS: Gadgets, devices, cables (has specs)
-- CATEGORY_HOUSEHOLD: Cleaning supplies, detergents
+## STEP 1: CLASSIFY PRODUCT CATEGORY
+- CATEGORY_FOOD: Has "Nutrition Facts", calories, sugar, protein
+- CATEGORY_SUPPLEMENT: Has "Supplement Facts", daily value
+- CATEGORY_COSMETIC: For external use, skin/hair products
+- CATEGORY_ELECTRONICS: Has specs, battery, ports
+- CATEGORY_HOUSEHOLD: Cleaning products, detergents
 
-## STEP 2: CATEGORY-SPECIFIC RULES
+## STEP 2: APPLY CATEGORY-SPECIFIC RULES ONLY
+IF CATEGORY_COSMETIC:
+- CHECK: Chemical safety, fragrance, claims vs reality
+- IGNORE: Nutritional rules (sugar, sodium, etc.)
 
 IF CATEGORY_FOOD:
-✓ ENABLE: Nutritional analysis, sugar check, sodium check, allergens
-✗ DISABLE: Chemical safety (cosmetic rules), repairability
-
-IF CATEGORY_COSMETIC:
-✓ ENABLE: Chemical safety, fragrance check, allergens
-✗ DISABLE: Nutritional analysis, sugar/sodium checks
-
-IF CATEGORY_ELECTRONICS:
-✓ ENABLE: Spec check, repairability, battery analysis
-✗ DISABLE: ALL ingredient-based rules
+- CHECK: Nutritional content, sugar, sodium, additives
+- IGNORE: Cosmetic rules
 
 ## STEP 3: CLAIM VS FACT CROSS-CHECK
-Compare FRONT marketing claims with BACK technical data:
+| Front Claim | Check For | Violation |
+|-------------|-----------|-----------|
+| "Natural" | Synthetics (phenoxyethanol, dimethicone, PEG-) | Law 5 (-12) |
+| "Fragrance Free" | "Fragrance" or "Parfum" in ingredients | Law 19 (-15) |
+| "Paraben Free" | Any paraben in ingredients | Law 19 (-15) |
+| "Premium" | Water as #1 ingredient | Law 1 (-15) |
 
-| Front Claim | Check Against | Violation if Mismatch |
-|-------------|---------------|----------------------|
-| "Natural/All Natural" | Synthetics in ingredients (phenoxyethanol, dimethicone, PEG-, artificial) | Law 5: Natural Fallacy (-12) |
-| "Unscented/Fragrance-Free" | "Fragrance" or "Parfum" in ingredients | Law 19: Fake Claim (-15) |
-| "Premium/Luxury" | Water/cheap filler as #1 ingredient | Law 1: Water-Down (-15 to -25) |
-| "With [Hero Ingredient]" | Hero ingredient below position #5 | Law 2: Fairy Dusting (-12) |
-| "Clinically Proven" | No study citation visible | Law 13: Clinical Ghost (-12) |
-| "High Protein" | Check actual protein per serving | Verify claim |
+## STEP 4: SCORING (Base: 85)
+Deduct ONLY for verified issues:
+- Each Law violation: specified points
+- Each concerning ingredient WITH citation: -2 to -5
 
-## STEP 4: FINE PRINT DEEP SCAN
-Scan ALL visible text for:
-- "May contain traces of..." 
-- "Processed in a facility that handles..."
-- "Not suitable for..."
-- "Patch test recommended"
-- "Consult doctor if pregnant"
-- "Not for children under..."
-
-## STEP 5: PROVABLE SCORING
-Base: 85 points
-- ONLY deduct if you have EVIDENCE from the image
-- For ingredient flags: specify which ingredient and where it appears
-- For claim violations: quote the claim AND the contradicting fact
-
-## ELECTRONICS SPECIFIC (if CATEGORY_ELECTRONICS):
-Check for:
-- "User replaceable battery" (+15) vs "Sealed battery" (-10)
-- "Standard USB-C" (+5) vs "Proprietary connector" (-5)
-- Repairability indicators
+## STEP 5: FLAG INGREDIENTS WITH CITATIONS
+For EACH flagged ingredient:
+- State the specific concern
+- Provide scientific source if known (EU SCCS, FDA, etc.)
+- If no citation available, note "potential concern - verify"
 
 ## CONTEXT:
 Location: {location}
-User Profiles: {user_profiles}
-User Allergies: {user_allergies}
 {barcode_context}
 
-## REQUIRED OUTPUT (Valid JSON):
+## REQUIRED OUTPUT (Valid JSON only):
 {{
-    "product_name": "Exact name from image",
+    "product_name": "Exact product name",
     "brand": "Brand name",
     "product_category": "CATEGORY_FOOD/CATEGORY_COSMETIC/CATEGORY_SUPPLEMENT/CATEGORY_ELECTRONICS/CATEGORY_HOUSEHOLD",
-    "product_type": "specific type (cleanser, protein_bar, vitamin, etc)",
+    "product_type": "specific type",
     "readable": true,
     "score": <0-100>,
-    "front_claims": ["List marketing claims from front"],
-    "fine_print_detected": ["List any fine print warnings found"],
     "violations": [
         {{
-            "law": <1-20 or null>,
-            "name": "Law name",
-            "points": <negative>,
-            "evidence": "QUOTE exact text from image proving this",
-            "source": "Citation if available (e.g., EU SCCS, FDA)"
+            "law": <number or null>,
+            "name": "Violation name",
+            "points": <negative number>,
+            "evidence": "Quote exact text from image",
+            "source": "Scientific source if applicable"
         }}
     ],
     "bonuses": [
         {{"name": "Bonus", "points": <positive>, "evidence": "What earned it"}}
     ],
-    "ingredients": ["list if visible"],
+    "ingredients": ["list"],
     "ingredients_flagged": [
         {{
             "name": "ingredient",
             "concern": "specific concern",
-            "severity": "red/yellow",
-            "source": "Scientific source (EU SCCS, FDA, etc.) or null if unverified"
+            "source": "Citation (EU SCCS, FDA, CIR, etc.) or null"
         }}
     ],
+    "good_ingredients": ["beneficial ingredients"],
     "main_issue": "Primary concern or 'Clean formula'",
-    "positive": "Main positive",
+    "positive": "Main positive aspect",
+    "front_claims": ["marketing claims detected"],
+    "fine_print": ["any warnings/disclaimers found"],
     "confidence": "high/medium/low"
 }}
 
-## CRITICAL RULES:
-1. Category determines which rules apply - do NOT apply food rules to cosmetics
-2. Every red flag MUST have a scientific citation, else make it yellow
-3. Quote exact evidence from image for violations
-4. If label is partially obscured, note what you CAN and CANNOT verify"""
+CRITICAL: Output ONLY valid JSON. No markdown, no extra text."""
 
 def analyze_product(images, location, progress_callback, barcode_info=None, user_profiles=None, user_allergies=None):
-    """Advanced AI analysis with Context Gatekeeper"""
+    """AI Analysis with score consistency"""
     progress_callback(0.1, "Reading product...")
     
     if not GEMINI_API_KEY:
         return {"product_name": "API Key Missing", "score": 0, "verdict": "UNCLEAR", "readable": False,
-                "violations": [], "main_issue": "Please add GEMINI_API_KEY"}
+                "violations": [], "main_issue": "Add GEMINI_API_KEY to secrets"}
     
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.1, "max_output_tokens": 8192})
@@ -1314,85 +1092,100 @@ def analyze_product(images, location, progress_callback, barcode_info=None, user
         img.seek(0)
         pil_images.append(Image.open(img))
     
-    progress_callback(0.3, "Classifying product category...")
+    progress_callback(0.3, "Analyzing...")
     
     barcode_context = ""
     if barcode_info and barcode_info.get('found'):
         barcode_context = f"""
-BARCODE DATABASE INFO (Use as reference, verify against image):
+BARCODE DATA:
 - Product: {barcode_info.get('name', '')}
 - Brand: {barcode_info.get('brand', '')}
-- Category: {barcode_info.get('categories', '')}
 - Ingredients: {barcode_info.get('ingredients', '')[:1000]}
 - Source: {barcode_info.get('source', '')}
-If image shows different product, trust IMAGE."""
+Use this data if image is unclear."""
     
     prompt = ANALYSIS_PROMPT.format(
         location=f"{location.get('city', '')}, {location.get('country', '')}",
-        user_profiles=', '.join(user_profiles) if user_profiles else 'None',
-        user_allergies=', '.join(user_allergies) if user_allergies else 'None',
         barcode_context=barcode_context
     )
     
-    progress_callback(0.5, "Applying context rules...")
+    progress_callback(0.5, "Applying rules...")
     
     try:
         response = model.generate_content([prompt] + pil_images)
         text = response.text.strip()
         
+        # Parse JSON
         result = None
-        for pattern in [r'```json\s*(.*?)\s*```', r'\{[\s\S]*\}']:
-            match = re.search(pattern, text, re.DOTALL)
-            if match:
+        # Try to extract JSON
+        json_match = re.search(r'\{[\s\S]*\}', text)
+        if json_match:
+            try:
+                result = json.loads(json_match.group(0))
+            except:
+                # Try cleaning
+                clean_text = text.replace('```json', '').replace('```', '').strip()
                 try:
-                    result = json.loads(match.group(1) if '```' in pattern else match.group(0))
-                    break
-                except: continue
+                    result = json.loads(clean_text)
+                except:
+                    pass
         
         if not result:
             return {"product_name": "Parse Error", "score": 0, "verdict": "UNCLEAR",
-                    "readable": False, "violations": [], "main_issue": "Could not parse response"}
+                    "readable": False, "violations": [], "main_issue": "Could not parse AI response"}
         
-        progress_callback(0.8, "Calculating score...")
+        progress_callback(0.7, "Checking consistency...")
         
-        # Validate and ensure score
+        # Get score and validate
         score = result.get('score', 75)
         if isinstance(score, str):
-            try: score = int(re.sub(r'[^\d]', '', score))
-            except: score = 75
+            score = int(re.sub(r'[^\d]', '', score) or '75')
         score = max(0, min(100, score))
         
+        # SCORE CONSISTENCY: Check if we've seen this product before
+        product_name = result.get('product_name', '')
+        brand = result.get('brand', '')
+        
+        verified = get_verified_score(product_name, brand)
+        if verified and verified['scan_count'] >= 2:
+            # Use verified score with small adjustment
+            old_score = verified['score']
+            # Allow max 5 point variation from verified
+            if abs(score - old_score) > 5:
+                score = old_score
+        
+        # Ensure violations explain score
         violations = result.get('violations', [])
         if not violations and score < 85:
             missing = 85 - score
             violations = [{"law": None, "name": "Minor concerns", "points": -missing,
-                          "evidence": result.get('main_issue', 'Some concerns detected')}]
+                          "evidence": result.get('main_issue', 'Minor issues detected')}]
         
         result['score'] = score
         result['verdict'] = get_verdict(score)
         result['violations'] = violations
         
-        # Learning consistency
-        if result.get('product_name'):
-            learned = get_learned_product(result['product_name'])
-            if learned and learned.get('scan_count', 0) >= 3:
-                weight = min(learned['scan_count'] * 0.1, 0.4)
-                result['score'] = int(score * (1 - weight) + learned['score'] * weight)
-                result['verdict'] = get_verdict(result['score'])
-        
         if not result.get('readable', True):
             result['score'] = 0
             result['verdict'] = 'UNCLEAR'
         
-        progress_callback(1.0, "Analysis complete!")
+        # Add notifications (don't affect score)
+        product_category = result.get('product_category', 'CATEGORY_FOOD')
+        ingredients = result.get('ingredients', [])
+        full_text = ' '.join(result.get('fine_print', []) + result.get('front_claims', []))
+        
+        notifications = check_profile_notifications(ingredients, full_text, user_profiles or [], user_allergies or [], product_category)
+        result['notifications'] = notifications
+        
+        progress_callback(1.0, "Complete!")
         return result
         
     except Exception as e:
-        return {"product_name": "Analysis Error", "score": 0, "verdict": "UNCLEAR",
+        return {"product_name": "Error", "score": 0, "verdict": "UNCLEAR",
                 "readable": False, "violations": [], "main_issue": f"Error: {str(e)[:100]}"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SHARE IMAGES - Clean, Professional
+# SHARE IMAGE GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def create_share_image(product_name, brand, score, verdict):
@@ -1407,6 +1200,7 @@ def create_share_image(product_name, brand, score, verdict):
     img = Image.new('RGB', (width, height), c1)
     draw = ImageDraw.Draw(img)
     
+    # Gradient
     for i in range(height // 2, height):
         progress = (i - height // 2) / (height // 2)
         r = int(int(c1[1:3], 16) + (int(c2[1:3], 16) - int(c1[1:3], 16)) * progress)
@@ -1481,12 +1275,12 @@ def create_story_image(product_name, brand, score, verdict):
     
     return img
 
-def image_to_bytes(img, format='PNG'):
-    buffer = BytesIO()
-    img.save(buffer, format=format)
-    return buffer.getvalue()
+def image_to_bytes(img, fmt='PNG'):
+    buf = BytesIO()
+    img.save(buf, format=fmt)
+    return buf.getvalue()
 # ═══════════════════════════════════════════════════════════════════════════════
-# CLEAN UI STYLES - Results First, Details Collapsible
+# CSS STYLES - Clean, No Rendering Issues
 # ═══════════════════════════════════════════════════════════════════════════════
 
 CSS = """
@@ -1496,7 +1290,7 @@ CSS = """
 .stApp { background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important; }
 .main .block-container { padding: 0.5rem 1rem; max-width: 520px; }
 
-/* Verdict Cards - PROMINENT */
+/* Verdict Cards */
 .verdict-exceptional { background: linear-gradient(135deg, #06b6d4, #0891b2); }
 .verdict-buy { background: linear-gradient(135deg, #22c55e, #16a34a); }
 .verdict-caution { background: linear-gradient(135deg, #f59e0b, #d97706); }
@@ -1511,45 +1305,71 @@ CSS = """
 .verdict-text { font-size: 1.3rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
 .verdict-score { font-size: 4rem; font-weight: 900; }
 
-/* Stats - Compact */
+/* Stats */
 .stat-row { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
 .stat-box { flex: 1; background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 0.6rem; text-align: center; }
 .stat-val { font-size: 1.3rem; font-weight: 800; color: #3b82f6; }
 .stat-lbl { font-size: 0.6rem; color: #64748b; text-transform: uppercase; }
 
-/* Alerts - High Visibility */
-.alert-high { background: linear-gradient(135deg, #fef2f2, #fee2e2); border-left: 4px solid #ef4444; border-radius: 12px; padding: 0.9rem; margin: 0.4rem 0; }
-.alert-medium { background: linear-gradient(135deg, #fffbeb, #fef3c7); border-left: 4px solid #f59e0b; border-radius: 12px; padding: 0.9rem; margin: 0.4rem 0; }
-.alert-fine-print { background: linear-gradient(135deg, #fdf4ff, #f3e8ff); border-left: 4px solid #a855f7; border-radius: 12px; padding: 0.9rem; margin: 0.4rem 0; }
-.alert-info { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-left: 4px solid #3b82f6; border-radius: 12px; padding: 0.9rem; margin: 0.4rem 0; }
+/* Notifications (profile alerts) */
+.notif-danger {
+    background: linear-gradient(135deg, #fef2f2, #fee2e2);
+    border-left: 5px solid #ef4444;
+    border-radius: 12px; padding: 1rem; margin: 0.5rem 0;
+    animation: pulse 2s infinite;
+}
+.notif-warning {
+    background: linear-gradient(135deg, #fffbeb, #fef3c7);
+    border-left: 5px solid #f59e0b;
+    border-radius: 12px; padding: 1rem; margin: 0.5rem 0;
+}
+@keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+}
 
-/* Laws - Clean */
-.law-box { background: white; border-left: 4px solid #ef4444; border-radius: 0 12px 12px 0; padding: 0.8rem; margin: 0.3rem 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+/* Alerts */
+.alert-issue { background: linear-gradient(135deg, #fef3c7, #fde68a); border-left: 4px solid #f59e0b; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
+.alert-positive { background: linear-gradient(135deg, #dcfce7, #bbf7d0); border-left: 4px solid #22c55e; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
+
+/* Laws */
+.law-box {
+    background: white;
+    border-left: 4px solid #ef4444;
+    border-radius: 0 12px 12px 0;
+    padding: 0.8rem;
+    margin: 0.4rem 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
 .law-title { font-weight: 700; color: #dc2626; font-size: 0.95rem; }
-.law-evidence { font-size: 0.85rem; color: #64748b; margin-top: 0.25rem; }
-.law-source { font-size: 0.75rem; color: #6b7280; background: #f1f5f9; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-block; margin-top: 0.25rem; }
+.law-evidence { font-size: 0.85rem; color: #64748b; margin-top: 0.3rem; }
+.law-source { font-size: 0.75rem; color: #059669; background: #ecfdf5; padding: 0.2rem 0.5rem; border-radius: 4px; display: inline-block; margin-top: 0.3rem; }
 
 /* Bonuses */
-.bonus-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-left: 4px solid #22c55e; padding: 0.6rem; border-radius: 0 10px 10px 0; margin: 0.25rem 0; }
+.bonus-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-left: 4px solid #22c55e; padding: 0.6rem; border-radius: 0 10px 10px 0; margin: 0.3rem 0; }
 
-/* Issue/Positive - Prominent */
-.issue-box { background: linear-gradient(135deg, #fef3c7, #fde68a); border-left: 4px solid #f59e0b; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
-.positive-box { background: linear-gradient(135deg, #dcfce7, #bbf7d0); border-left: 4px solid #22c55e; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
-
-/* Ingredients - Compact Badges */
+/* Ingredients */
 .ing-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
 .ing-badge { padding: 0.3rem 0.6rem; border-radius: 16px; font-weight: 600; font-size: 0.75rem; }
 .ing-red { background: #fee2e2; color: #dc2626; }
 .ing-yellow { background: #fef3c7; color: #b45309; }
 .ing-green { background: #dcfce7; color: #16a34a; }
+.ing-source { font-size: 0.7rem; color: #059669; font-style: italic; }
 
-/* Alternative - Always Visible */
+/* Alternative */
 .alt-card { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #86efac; border-radius: 16px; padding: 1rem; margin: 0.75rem 0; }
 .alt-score { background: #22c55e; color: white; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem; }
+.alt-retailer { font-size: 0.85rem; color: #64748b; margin-top: 0.3rem; }
 
-/* Share - Compact */
-.share-row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }
-.share-btn { padding: 0.5rem 0.75rem; border-radius: 8px; color: white; text-decoration: none; font-weight: 600; font-size: 0.75rem; flex: 1; text-align: center; min-width: 70px; }
+/* Share - ALL 6 SOCIAL MEDIA */
+.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0.5rem 0; }
+.share-btn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 0.6rem; border-radius: 10px; color: white; text-decoration: none;
+    font-weight: 600; font-size: 0.7rem; transition: transform 0.2s;
+}
+.share-btn:hover { transform: translateY(-2px); }
+.share-btn span { font-size: 1.2rem; margin-bottom: 0.2rem; }
 
 /* Progress */
 .progress-box { background: white; border-radius: 16px; padding: 1.5rem; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
@@ -1572,27 +1392,24 @@ CSS = """
 .stTabs [data-baseweb="tab"] { background: transparent; color: #64748b; border-radius: 8px; font-weight: 600; }
 .stTabs [aria-selected="true"] { background: white !important; color: #1e293b !important; }
 
-/* Expanders - For Optional Details */
+/* Expanders */
 [data-testid="stExpander"] { background: white; border: 1px solid #e2e8f0; border-radius: 12px; margin: 0.3rem 0; }
-[data-testid="stExpander"] summary { font-weight: 600; }
 
-/* Laws Cards */
+/* Law Cards in Laws tab */
 .law-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.7rem; margin: 0.3rem 0; }
 .law-card-title { font-weight: 700; color: #1e293b; font-size: 0.9rem; }
 .law-card-pts { color: #ef4444; font-weight: 700; }
 .law-card-desc { font-size: 0.8rem; color: #64748b; margin-top: 0.2rem; }
 
-/* Retailer Links */
-.retailer-row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.4rem 0; }
-.retailer-link { background: #f1f5f9; color: #475569; padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.75rem; text-decoration: none; }
-.retailer-link:hover { background: #e2e8f0; }
+/* Location prompt */
+.location-prompt { background: linear-gradient(135deg, #eff6ff, #dbeafe); border: 2px solid #3b82f6; border-radius: 12px; padding: 1rem; margin: 0.5rem 0; }
 
 #MainMenu, footer, header { visibility: hidden; }
 [data-testid="stCameraInput"] video { max-height: 180px !important; border-radius: 12px; }
 </style>
 """
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN APPLICATION - Clean UI, Results First, Details Collapsible
+# MAIN APPLICATION - ULTIMATE EDITION
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
@@ -1601,29 +1418,32 @@ def main():
     user_id = get_user_id()
     
     # Session state
-    if 'result' not in st.session_state: st.session_state.result = None
-    if 'scan_id' not in st.session_state: st.session_state.scan_id = None
-    if 'admin' not in st.session_state: st.session_state.admin = False
-    if 'barcode_info' not in st.session_state: st.session_state.barcode_info = None
-    if 'show_result' not in st.session_state: st.session_state.show_result = False
+    for key in ['result', 'scan_id', 'admin', 'barcode_info', 'show_result']:
+        if key not in st.session_state:
+            st.session_state[key] = None if key != 'admin' else False
+    if 'show_result' not in st.session_state:
+        st.session_state.show_result = False
     
-    # Location
+    # Location detection - enhanced
     if 'loc' not in st.session_state:
         saved = get_saved_location()
-        if saved and saved.get('city') not in ['Unknown', '', 'Your City']:
+        if saved and saved.get('city') not in ['Unknown', '', 'Your City', None]:
             st.session_state.loc = saved
         else:
-            detected = get_location()
+            detected = detect_location_enhanced()
             st.session_state.loc = detected
-            if detected.get('city') not in ['Unknown', 'Your City']:
+            if detected.get('city') not in ['Unknown', 'Your City', ''] and not detected.get('needs_manual'):
                 save_location(detected['city'], detected['country'])
     
     # Header
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown("# 🌍 HonestWorld")
-        if st.session_state.loc.get('city') not in ['Unknown', 'Your City', '']:
-            st.markdown(f"<span class='loc-badge'>📍 {st.session_state.loc.get('city', '')}</span>", unsafe_allow_html=True)
+        loc = st.session_state.loc
+        if loc.get('city') and loc.get('city') not in ['Unknown', 'Your City', '']:
+            st.markdown(f"<span class='loc-badge'>📍 {loc.get('city')}</span>", unsafe_allow_html=True)
+        elif loc.get('needs_manual'):
+            st.markdown("<span class='loc-badge'>📍 Set your location in Profile</span>", unsafe_allow_html=True)
     with col2:
         stats = get_stats()
         if stats['streak'] > 0:
@@ -1655,7 +1475,7 @@ def main():
         render_laws()
     
     # Footer
-    st.markdown(f"<center style='color: #94a3b8; font-size: 0.7rem; margin-top: 1rem;'>🌍 HonestWorld v{VERSION} • Context-Aware Integrity Engine</center>", unsafe_allow_html=True)
+    st.markdown(f"<center style='color:#94a3b8;font-size:0.7rem;margin-top:1rem;'>🌍 HonestWorld v{VERSION} • Ultimate Edition</center>", unsafe_allow_html=True)
 
 
 def render_scan_interface():
@@ -1664,7 +1484,7 @@ def render_scan_interface():
     images = []
     
     if input_method == "📷 Camera":
-        st.caption("📸 Point at product label")
+        st.caption("📸 Point at product label (front + back for best results)")
         cam_img = st.camera_input("", label_visibility="collapsed")
         if cam_img:
             images = [cam_img]
@@ -1681,7 +1501,7 @@ def render_scan_interface():
     
     else:  # Barcode
         st.markdown("**📊 Perfect Barcode Scanner**")
-        st.caption("Can't photograph folded label? Scan barcode and we'll fetch the data!")
+        st.caption("Can't scan folded label? Barcode fetches all data automatically!")
         barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
         
         if barcode_img:
@@ -1691,11 +1511,11 @@ def render_scan_interface():
                     barcode_num = ai_read_barcode(barcode_img)
                 
                 if barcode_num:
-                    st.info(f"📊 Barcode: **{barcode_num}**")
+                    st.info(f"📊 **{barcode_num}**")
                     
                     progress_ph = st.empty()
                     def update_prog(pct, msg):
-                        progress_ph.markdown(f"<div class='progress-box'><div style='font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
+                        progress_ph.markdown(f"<div class='progress-box'><div>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
                     
                     barcode_info = smart_barcode_lookup(barcode_num, update_prog)
                     progress_ph.empty()
@@ -1704,23 +1524,12 @@ def render_scan_interface():
                         st.success(f"✅ **{barcode_info.get('name', '')}**")
                         if barcode_info.get('brand'):
                             st.caption(f"by {barcode_info.get('brand')} • {barcode_info.get('source', '')}")
-                        
-                        # Show retailer links if ingredients not found
-                        if not barcode_info.get('ingredients'):
-                            st.markdown("**🔗 Find full details:**")
-                            links = get_retailer_search_links(barcode_info.get('name', ''), st.session_state.loc.get('code', 'OTHER'))
-                            link_html = " ".join([f"<a href='{l['url']}' target='_blank' class='retailer-link'>{l['name']}</a>" for l in links[:4]])
-                            st.markdown(f"<div class='retailer-row'>{link_html}</div>", unsafe_allow_html=True)
-                        
                         st.session_state.barcode_info = barcode_info
                         images = [barcode_img]
                     else:
-                        st.warning("Not found in databases. Try photo scan or search retailers:")
-                        links = get_retailer_search_links(barcode_num, st.session_state.loc.get('code', 'OTHER'))
-                        link_html = " ".join([f"<a href='{l['url']}' target='_blank' class='retailer-link'>{l['name']}</a>" for l in links[:4]])
-                        st.markdown(f"<div class='retailer-row'>{link_html}</div>", unsafe_allow_html=True)
+                        st.warning("Not found in databases. Use photo scan instead.")
                 else:
-                    st.error("Could not read barcode. Try clearer image.")
+                    st.error("Could not read barcode. Try a clearer image.")
     
     # Analyze button
     if images:
@@ -1739,6 +1548,7 @@ def render_scan_interface():
             progress_ph.empty()
             
             if result.get('readable', True) and result.get('score', 0) > 0:
+                # Thumbnail
                 thumb = None
                 try:
                     images[0].seek(0)
@@ -1749,8 +1559,8 @@ def render_scan_interface():
                     thumb = buf.getvalue()
                 except: pass
                 
-                scan_id = save_scan(result, get_user_id(), thumb)
-                cloud_log_scan(result, st.session_state.loc.get('city', ''), st.session_state.loc.get('country', ''), get_user_id())
+                scan_id = save_scan(result, user_id, thumb)
+                cloud_log_scan(result, st.session_state.loc.get('city', ''), st.session_state.loc.get('country', ''), user_id)
                 
                 st.session_state.result = result
                 st.session_state.scan_id = scan_id
@@ -1758,18 +1568,18 @@ def render_scan_interface():
                 st.session_state.barcode_info = None
                 st.rerun()
             else:
-                st.error("❌ Could not analyze. Try clearer photo showing product name and ingredients.")
+                st.error("❌ Could not analyze. Try a clearer photo.")
 
 
 def display_result(result, user_id):
-    """CLEAN RESULT DISPLAY - Score first, details collapsible"""
+    """Display result - FIXED HTML rendering, all features"""
     score = result.get('score', 0)
     verdict = result.get('verdict', 'UNCLEAR')
     product_category = result.get('product_category', 'CATEGORY_FOOD')
     product_type = result.get('product_type', '')
     display = get_verdict_display(verdict)
     
-    # VERDICT CARD - Most prominent
+    # Verdict card
     st.markdown(f"""<div class='verdict-card verdict-{verdict.lower()}'>
         <div class='verdict-icon'>{display['icon']}</div>
         <div class='verdict-text'>{display['text']}</div>
@@ -1781,79 +1591,89 @@ def display_result(result, user_id):
     if result.get('brand'):
         st.markdown(f"*by {result.get('brand')}*")
     
-    # Category badge
-    cat_icon = PRODUCT_CATEGORIES.get(product_category, {}).get('icon', '📦')
-    cat_name = PRODUCT_CATEGORIES.get(product_category, {}).get('name', 'Product')
-    st.markdown(f"<span class='cat-badge'>{cat_icon} {cat_name}</span>", unsafe_allow_html=True)
+    cat_info = PRODUCT_CATEGORIES.get(product_category, {})
+    st.markdown(f"<span class='cat-badge'>{cat_info.get('icon', '📦')} {cat_info.get('name', 'Product')}</span>", unsafe_allow_html=True)
     
-    # MAIN ISSUE - Prominent if exists
+    # NOTIFICATIONS (Profile alerts - don't affect score)
+    notifications = result.get('notifications', [])
+    for notif in notifications:
+        css_class = 'notif-danger' if notif.get('severity') == 'danger' else 'notif-warning'
+        st.markdown(f"""<div class='{css_class}'>
+            <strong>{notif.get('icon', '⚠️')} {notif.get('name', 'Alert')}</strong><br>
+            {notif.get('message', '')}
+        </div>""", unsafe_allow_html=True)
+    
+    # Main issue
     main_issue = result.get('main_issue', '')
     if main_issue and main_issue.lower() not in ['clean formula', 'none', '']:
-        st.markdown(f"<div class='issue-box'>⚠️ <strong>{main_issue}</strong></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='alert-issue'>⚠️ <strong>{main_issue}</strong></div>", unsafe_allow_html=True)
     
-    # POSITIVE - Prominent
+    # Positive
     if result.get('positive'):
-        st.markdown(f"<div class='positive-box'>✅ <strong>{result.get('positive')}</strong></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='alert-positive'>✅ <strong>{result.get('positive')}</strong></div>", unsafe_allow_html=True)
     
-    # HEALTH ALERTS - High visibility
-    user_profiles = get_profiles()
-    user_allergies = get_allergies()
-    
-    # Context-aware alerts
-    alerts = check_health_alerts(result.get('ingredients', []), user_allergies, user_profiles, product_category)
-    for alert in alerts:
-        css = 'alert-high' if alert['severity'] == 'high' else 'alert-medium'
-        st.markdown(f"<div class='{css}'><strong>{alert['icon']} {alert['name']}</strong><br>{alert['message']}</div>", unsafe_allow_html=True)
-    
-    # Fine print alerts
-    fine_print = result.get('fine_print_detected', [])
-    for fp in fine_print:
-        st.markdown(f"<div class='alert-fine-print'><strong>📜 Fine Print Found</strong><br>\"{fp}\"</div>", unsafe_allow_html=True)
-    
-    # ALTERNATIVE - Always visible
-    alt = get_alternative(result.get('product_name', ''), product_type, product_category)
+    # Alternative - Country Specific
+    country_code = st.session_state.loc.get('code', 'OTHER')
+    alt = get_alternative(result.get('product_name', ''), product_type, product_category, country_code)
     alt_score_html = f"<span class='alt-score'>{alt['score']}/100</span>" if alt.get('score') else ''
-    retailers = ', '.join(st.session_state.loc.get('retailers', ['Local stores'])[:3])
+    
     st.markdown(f"""<div class='alt-card'>
         <strong>💚 {'Better Alternative' if verdict in ['CAUTION', 'AVOID'] else 'Similar Quality'}:</strong><br>
         <span style='font-size:1.05rem;font-weight:600;'>{alt['name']}</span> {alt_score_html}<br>
         <span style='color:#16a34a;'>{alt['why']}</span><br>
-        <span style='font-size:0.8rem;color:#64748b;'>At: {retailers}</span>
+        <div class='alt-retailer'>📍 Available at: {alt.get('retailer', 'Local stores')}</div>
     </div>""", unsafe_allow_html=True)
     
-    # ═══ COLLAPSIBLE DETAILS ═══
-    
-    # Laws/Violations - Collapsible
+    # LAWS VIOLATED - Fixed HTML rendering
     violations = result.get('violations', [])
     if violations:
         with st.expander(f"⚖️ Laws Violated ({len(violations)})", expanded=False):
             for v in violations:
-                law_text = f"Law {v.get('law')}: " if v.get('law') else ""
-                source_html = f"<div class='law-source'>📚 {v.get('source')}</div>" if v.get('source') else ""
+                law_num = v.get('law')
+                law_text = f"Law {law_num}: " if law_num else ""
+                evidence = v.get('evidence', '').replace('<', '&lt;').replace('>', '&gt;')  # Escape HTML
+                source = v.get('source', '')
+                source_html = f"<div class='law-source'>📚 {source}</div>" if source else ""
+                
                 st.markdown(f"""<div class='law-box'>
-                    <div class='law-title'>{law_text}{v.get('name', '')} ({v.get('points', 0)} pts)</div>
-                    <div class='law-evidence'>{v.get('evidence', '')}</div>
+                    <div class='law-title'>{law_text}{v.get('name', 'Violation')} ({v.get('points', 0)} pts)</div>
+                    <div class='law-evidence'>{evidence}</div>
                     {source_html}
                 </div>""", unsafe_allow_html=True)
     
-    # Bonuses - Collapsible
+    # Bonuses
     bonuses = result.get('bonuses', [])
     if bonuses:
         with st.expander(f"✨ Bonuses ({len(bonuses)})", expanded=False):
             for b in bonuses:
-                st.markdown(f"<div class='bonus-box'><strong>+{b.get('points', 0)}: {b.get('name', '')}</strong><br><span style='font-size:0.85rem;'>{b.get('evidence', '')}</span></div>", unsafe_allow_html=True)
+                evidence = str(b.get('evidence', '')).replace('<', '&lt;').replace('>', '&gt;')
+                st.markdown(f"""<div class='bonus-box'>
+                    <strong>+{b.get('points', 0)}: {b.get('name', '')}</strong><br>
+                    <span style='font-size:0.85rem;'>{evidence}</span>
+                </div>""", unsafe_allow_html=True)
     
-    # Ingredients - Collapsible
+    # Ingredients - With proper citations
     ingredients_flagged = result.get('ingredients_flagged', [])
     if ingredients_flagged or result.get('ingredients'):
         with st.expander("🧪 Ingredients Analysis", expanded=False):
             if ingredients_flagged:
                 st.markdown("**Flagged:**")
                 for ing in ingredients_flagged:
-                    severity = ing.get('severity', 'yellow')
-                    css = 'ing-red' if severity == 'red' else 'ing-yellow'
-                    source_text = f" • {ing.get('source')}" if ing.get('source') else " • *No citation - unverified*"
-                    st.markdown(f"<span class='ing-badge {css}'>{ing.get('name', '')}</span> {ing.get('concern', '')}{source_text}", unsafe_allow_html=True)
+                    ing_name = ing.get('name', '')
+                    concern = ing.get('concern', '')
+                    
+                    # Get citation from our database
+                    citation = get_citation(ing_name)
+                    if citation:
+                        source_text = citation.get('source', '')
+                        severity = citation.get('severity', 'medium')
+                        css_class = 'ing-red' if severity in ['high', 'medium'] else 'ing-yellow'
+                        source_display = f"<span class='ing-source'>• {source_text}</span>"
+                    else:
+                        css_class = 'ing-yellow'
+                        source_display = "<span class='ing-source'>• Verify independently</span>"
+                    
+                    st.markdown(f"<span class='ing-badge {css_class}'>{ing_name}</span> {concern} {source_display}", unsafe_allow_html=True)
             
             good = result.get('good_ingredients', [])
             if good:
@@ -1864,30 +1684,42 @@ def display_result(result, user_id):
             if result.get('ingredients'):
                 st.markdown(f"**All:** {', '.join(result.get('ingredients', [])[:30])}")
     
-    # Front Claims - Collapsible
+    # Front Claims
     front_claims = result.get('front_claims', [])
     if front_claims:
-        with st.expander("🏷️ Marketing Claims Detected", expanded=False):
+        with st.expander("🏷️ Marketing Claims", expanded=False):
             for claim in front_claims:
                 st.markdown(f"• {claim}")
     
-    # SHARE - Compact
+    # Fine Print
+    fine_print = result.get('fine_print', [])
+    if fine_print:
+        with st.expander("📜 Fine Print Detected", expanded=False):
+            for fp in fine_print:
+                st.markdown(f"• _{fp}_")
+    
+    # SHARE - ALL 6 SOCIAL MEDIA
     st.markdown("### 📤 Share")
+    
     share_img = create_share_image(result.get('product_name', ''), result.get('brand', ''), score, verdict)
     story_img = create_story_image(result.get('product_name', ''), result.get('brand', ''), score, verdict)
     
     col1, col2 = st.columns(2)
     with col1:
-        st.download_button("📥 Post", data=image_to_bytes(share_img), file_name=f"hw_{score}.png", mime="image/png", use_container_width=True)
+        st.download_button("📥 Post (1080×1080)", data=image_to_bytes(share_img), file_name=f"hw_{score}.png", mime="image/png", use_container_width=True)
     with col2:
-        st.download_button("📥 Story", data=image_to_bytes(story_img), file_name=f"hw_story_{score}.png", mime="image/png", use_container_width=True)
+        st.download_button("📥 Story (1080×1920)", data=image_to_bytes(story_img), file_name=f"hw_story_{score}.png", mime="image/png", use_container_width=True)
     
-    share_text = urllib.parse.quote(f"Scanned {result.get('product_name', '')} - {score}/100 ({verdict}) #HonestWorld")
-    st.markdown(f"""<div class='share-row'>
-        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#1DA1F2;'>𝕏</a>
-        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#4267B2;'>f</a>
-        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'>💬</a>
-        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'>➤</a>
+    # Social share links - ALL 6
+    share_text = urllib.parse.quote(f"Scanned {result.get('product_name', '')} with HonestWorld - {score}/100 ({verdict}) #HonestWorld")
+    
+    st.markdown(f"""<div class='share-grid'>
+        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#1DA1F2;'><span>𝕏</span>Twitter</a>
+        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#4267B2;'><span>f</span>Facebook</a>
+        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'><span>💬</span>WhatsApp</a>
+        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'><span>✈</span>Telegram</a>
+        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);'><span>📷</span>Instagram</a>
+        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#000;'><span>♪</span>TikTok</a>
     </div>""", unsafe_allow_html=True)
     
     # Scan another
@@ -1924,24 +1756,34 @@ def render_history(user_id):
 def render_profile():
     st.markdown("### ⚙️ Settings")
     
-    # Location
+    # Location - with manual override
     st.markdown("**📍 Location**")
+    loc = st.session_state.loc
+    
+    if loc.get('needs_manual') or loc.get('city') in ['Unknown', '']:
+        st.markdown("<div class='location-prompt'>⚠️ <strong>Location not detected.</strong> Please set manually for accurate alternatives.</div>", unsafe_allow_html=True)
+    
     col1, col2 = st.columns(2)
     with col1:
-        city = st.text_input("City", value=st.session_state.loc.get('city', ''), key="city_in")
+        city = st.text_input("City", value=loc.get('city', '') if loc.get('city') not in ['Unknown', 'Your City'] else '', key="city_in", placeholder="e.g., Brisbane")
     with col2:
-        country = st.text_input("Country", value=st.session_state.loc.get('country', ''), key="country_in")
+        country = st.text_input("Country", value=loc.get('country', '') if loc.get('country') not in ['Unknown'] else '', key="country_in", placeholder="e.g., Australia")
+    
     if st.button("Update Location"):
-        code = save_location(city, country)
-        st.session_state.loc = {'city': city, 'country': country, 'code': code, 'retailers': RETAILERS_DISPLAY.get(code, RETAILERS_DISPLAY['OTHER'])}
-        st.success("✅ Updated!")
-        st.rerun()
+        if city and country:
+            code = save_location(city, country)
+            st.session_state.loc = {'city': city, 'country': country, 'code': code, 'retailers': RETAILERS_DISPLAY.get(code, RETAILERS_DISPLAY['OTHER'])}
+            st.success(f"✅ Location set to {city}, {country}")
+            st.rerun()
+        else:
+            st.warning("Please enter both city and country")
     
     st.markdown("---")
     
     # Health Profiles
     st.markdown("**🏥 Health Profiles**")
-    st.caption("Context-aware: Only relevant rules apply per category")
+    st.caption("Get notifications when products contain flagged ingredients (doesn't affect score)")
+    
     current_profiles = get_profiles()
     new_profiles = st.multiselect(
         "Select profiles",
@@ -1959,6 +1801,8 @@ def render_profile():
     
     # Allergens
     st.markdown("**🚨 Allergen Alerts**")
+    st.caption("Get danger alerts for allergens")
+    
     current_allergies = get_allergies()
     new_allergies = st.multiselect(
         "Select allergens",
@@ -1983,27 +1827,26 @@ def render_profile():
         conn = sqlite3.connect(LOCAL_DB)
         c = conn.cursor()
         c.execute('SELECT COUNT(*) FROM scans')
-        scans = c.fetchone()[0]
-        c.execute('SELECT COUNT(*) FROM learned_products')
-        learned = c.fetchone()[0]
+        total_scans = c.fetchone()[0]
+        c.execute('SELECT COUNT(*) FROM verified_products')
+        verified = c.fetchone()[0]
         c.execute('SELECT COUNT(*) FROM barcode_cache')
         barcodes = c.fetchone()[0]
         conn.close()
-        st.markdown(f"📊 **{scans}** scans • **{learned}** learned • **{barcodes}** barcodes")
-        st.markdown(f"☁️ Cloud: {'🟢' if supa_ok() else '🔴'}")
+        st.markdown(f"📊 **{total_scans}** scans • **{verified}** verified products • **{barcodes}** barcodes")
 
 
 def render_laws():
     st.markdown("### ⚖️ The 20 Integrity Laws")
-    st.caption("Context-aware: Laws only apply to relevant product categories")
+    st.caption("Evidence-based scoring system")
     
     categories = {
-        "🧪 Ingredients": [1, 2, 3, 4, 5, 6],
-        "📦 Packaging": [7, 8, 18],
-        "📱 Electronics": [9, 10, 11, 12],
-        "💄 Beauty": [13, 14],
-        "📋 Services": [15, 16, 17],
-        "🏷️ Claims": [19, 20]
+        "🧪 Ingredients (1-6)": [1, 2, 3, 4, 5, 6],
+        "📦 Packaging (7, 8, 18)": [7, 8, 18],
+        "📱 Electronics (9-12)": [9, 10, 11, 12],
+        "💄 Beauty (13-14)": [13, 14],
+        "📋 Services (15-17)": [15, 16, 17],
+        "🏷️ Claims (19-20)": [19, 20]
     }
     
     for cat_name, nums in categories.items():
@@ -2011,13 +1854,13 @@ def render_laws():
             for n in nums:
                 if n in INTEGRITY_LAWS:
                     law = INTEGRITY_LAWS[n]
-                    applies = ', '.join([PRODUCT_CATEGORIES.get(c, {}).get('name', c)[:12] for c in law.get('applies_to', [])])
+                    applies = ', '.join([PRODUCT_CATEGORIES.get(c, {}).get('name', c)[:15] for c in law.get('applies_to', [])])
                     st.markdown(f"""<div class='law-card'>
                         <span class='law-card-title'>Law {n}: {law['name']}</span>
                         <span class='law-card-pts'> ({law['base_points']} pts)</span>
                         <div class='law-card-desc'>{law['description']}</div>
                         <div style='font-size:0.75rem;color:#059669;margin-top:0.2rem;'>💡 {law['tip']}</div>
-                        <div style='font-size:0.7rem;color:#64748b;margin-top:0.2rem;'>Applies to: {applies}</div>
+                        <div style='font-size:0.7rem;color:#64748b;'>Applies to: {applies}</div>
                     </div>""", unsafe_allow_html=True)
 
 
