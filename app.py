@@ -1477,48 +1477,63 @@ def main():
     # Footer
     st.markdown(f"<center style='color:#94a3b8;font-size:0.7rem;margin-top:1rem;'>🌍 HonestWorld v{VERSION} • Ultimate Edition</center>", unsafe_allow_html=True)
 
-
 def render_scan_interface():
+    """Clean scan interface"""
+    input_method = st.radio("", ["📷 Camera", "📁 Upload", "📊 Barcode"], horizontal=True, label_visibility="collapsed")
+    images = []
+    
+    if input_method == "📷 Camera":
+        st.caption("📸 Point at product label (front + back for best results)")
+        cam_img = st.camera_input("", label_visibility="collapsed")
+        if cam_img:
+            images = [cam_img]
+            st.success("✅ Photo ready")
+            if st.checkbox("+ Add back label"):
+                cam2 = st.camera_input("Back", label_visibility="collapsed", key="cam2")
+                if cam2: images.append(cam2)
+    
+    elif input_method == "📁 Upload":
+        uploaded = st.file_uploader("", type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=True, label_visibility="collapsed")
+        if uploaded:
+            images = uploaded[:3]
+            st.success(f"✅ {len(images)} image(s)")
+    
     else:  # Barcode
-    st.markdown("**📊 Perfect Barcode Scanner**")
-    st.caption("Can't scan folded label? Barcode fetches all data automatically!")
-    barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
-    
-    if barcode_img:
-        with st.spinner("Reading barcode..."):
-            barcode_num = try_decode_barcode_pyzbar(barcode_img)
-            if not barcode_num:
-                barcode_num = ai_read_barcode(barcode_img)
-            
-            if barcode_num:
-                st.info(f"📊 **{barcode_num}**")
+        st.markdown("**📊 Perfect Barcode Scanner**")
+        st.caption("🎯 Fetches complete product data automatically!")
+        barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
+        
+        if barcode_img:
+            with st.spinner("Reading barcode..."):
+                barcode_num = try_decode_barcode_pyzbar(barcode_img)
+                if not barcode_num:
+                    barcode_num = ai_read_barcode(barcode_img)
                 
-                progress_ph = st.empty()
-                def update_prog(pct, msg):
-                    progress_ph.markdown(f"<div class='progress-box'><div>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
-                
-                barcode_info = smart_barcode_lookup(barcode_num, update_prog)
-                progress_ph.empty()
-                
-                if barcode_info.get('found'):
-                    st.success(f"✅ **{barcode_info.get('name', '')}**")
-                    if barcode_info.get('brand'):
-                        st.caption(f"by {barcode_info.get('brand')} • {barcode_info.get('source', '')}")
+                if barcode_num:
+                    st.info(f"📊 **{barcode_num}**")
                     
-                    # STORE for analysis
-                    st.session_state.barcode_info = barcode_info
+                    progress_ph = st.empty()
+                    def update_prog(pct, msg):
+                        progress_ph.markdown(f"<div class='progress-box'><div>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
                     
-                    # Set flag to analyze from barcode data only
-                    st.session_state.barcode_only = True
-                    images = [barcode_img]  # Just for the flow, won't be used for OCR
+                    barcode_info = smart_barcode_lookup(barcode_num, update_prog)
+                    progress_ph.empty()
+                    
+                    if barcode_info.get('found'):
+                        st.success(f"✅ **{barcode_info.get('name', '')}**")
+                        if barcode_info.get('brand'):
+                            st.caption(f"by {barcode_info.get('brand')} • {barcode_info.get('source', '')}")
+                        
+                        st.session_state.barcode_info = barcode_info
+                        st.session_state.barcode_only = True
+                        images = [barcode_img]
+                    else:
+                        st.warning("Not found in databases. Use photo scan instead.")
                 else:
-                    st.warning("Not found in databases. Use photo scan instead.")
-            else:
-                st.error("Could not read barcode. Try a clearer image.")
+                    st.error("Could not read barcode. Try a clearer image.")
     
-    # Analyze button
     # Analyze button - FIXED
-    if images or st.session_state.get('barcode_info'):  # Allow analysis if barcode found
+    if images or st.session_state.get('barcode_info'):
         if st.button("🔍 ANALYZE", use_container_width=True, type="primary"):
             progress_ph = st.empty()
             def update_prog(pct, msg):
@@ -1529,12 +1544,13 @@ def render_scan_interface():
             user_profiles = get_profiles()
             user_allergies = get_allergies()
             bi = st.session_state.get('barcode_info')
+            user_id = get_user_id()
             
             # Check if barcode-only mode
             if st.session_state.get('barcode_only') and bi and bi.get('found'):
                 # Analyze from barcode data directly
                 result = analyze_from_barcode_data(bi, st.session_state.loc, update_prog, user_profiles, user_allergies)
-                st.session_state.barcode_only = False  # Reset
+                st.session_state.barcode_only = False
             else:
                 # Normal image analysis
                 result = analyze_product(images, st.session_state.loc, update_prog, bi, user_profiles, user_allergies)
@@ -1543,7 +1559,7 @@ def render_scan_interface():
             
             if result.get('readable', True) and result.get('score', 0) > 0:
                 # Thumbnail - FIXED initialization
-                thumb = None  # Always initialize
+                thumb = None
                 try:
                     if images and len(images) > 0:
                         images[0].seek(0)
@@ -1553,7 +1569,7 @@ def render_scan_interface():
                         img.save(buf, format='JPEG', quality=60)
                         thumb = buf.getvalue()
                 except: 
-                    pass  # thumb stays None
+                    pass
                 
                 scan_id = save_scan(result, user_id, thumb)
                 cloud_log_scan(result, st.session_state.loc.get('city', ''), st.session_state.loc.get('country', ''), user_id)
@@ -1566,7 +1582,6 @@ def render_scan_interface():
                 st.rerun()
             else:
                 st.error("❌ Could not analyze. Try a clearer photo.")
-
 
 def analyze_from_barcode_data(barcode_info, location, progress_callback, user_profiles=None, user_allergies=None):
     """Analyze product using only barcode database information"""
