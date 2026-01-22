@@ -1548,17 +1548,14 @@ def render_scan_interface():
             
             # Check if barcode-only mode
             if st.session_state.get('barcode_only') and bi and bi.get('found'):
-                # Analyze from barcode data directly
                 result = analyze_from_barcode_data(bi, st.session_state.loc, update_prog, user_profiles, user_allergies)
                 st.session_state.barcode_only = False
             else:
-                # Normal image analysis
                 result = analyze_product(images, st.session_state.loc, update_prog, bi, user_profiles, user_allergies)
             
             progress_ph.empty()
             
             if result.get('readable', True) and result.get('score', 0) > 0:
-                # Thumbnail - FIXED initialization
                 thumb = None
                 try:
                     if images and len(images) > 0:
@@ -1582,50 +1579,112 @@ def render_scan_interface():
                 st.rerun()
             else:
                 st.error("❌ Could not analyze. Try a clearer photo.")
-
+def render_scan_interface():
+    """Clean scan interface"""
+    input_method = st.radio("", ["📷 Camera", "📁 Upload", "📊 Barcode"], horizontal=True, label_visibility="collapsed")
+    images = []
+    
+    if input_method == "📷 Camera":
+        st.caption("📸 Point at product label (front + back for best results)")
+        cam_img = st.camera_input("", label_visibility="collapsed")
+        if cam_img:
+            images = [cam_img]
+            st.success("✅ Photo ready")
+            if st.checkbox("+ Add back label"):
+                cam2 = st.camera_input("Back", label_visibility="collapsed", key="cam2")
+                if cam2: images.append(cam2)
+    
+    elif input_method == "📁 Upload":
+        uploaded = st.file_uploader("", type=['png', 'jpg', 'jpeg', 'webp'], accept_multiple_files=True, label_visibility="collapsed")
+        if uploaded:
+            images = uploaded[:3]
+            st.success(f"✅ {len(images)} image(s)")
+    
+    else:  # Barcode
+        st.markdown("**📊 Perfect Barcode Scanner**")
+        st.caption("🎯 Fetches complete product data automatically!")
+        barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
+        
+        if barcode_img:
+            with st.spinner("Reading barcode..."):
+                barcode_num = try_decode_barcode_pyzbar(barcode_img)
+                if not barcode_num:
+                    barcode_num = ai_read_barcode(barcode_img)
+                
+                if barcode_num:
+                    st.info(f"📊 **{barcode_num}**")
+                    
+                    progress_ph = st.empty()
+                    def update_prog(pct, msg):
+                        progress_ph.markdown(f"<div class='progress-box'><div>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
+                    
+                    barcode_info = smart_barcode_lookup(barcode_num, update_prog)
+                    progress_ph.empty()
+                    
+                    if barcode_info.get('found'):
+                        st.success(f"✅ **{barcode_info.get('name', '')}**")
+                        if barcode_info.get('brand'):
+                            st.caption(f"by {barcode_info.get('brand')} • {barcode_info.get('source', '')}")
+                        
+                        st.session_state.barcode_info = barcode_info
+                        st.session_state.barcode_only = True
+                        images = [barcode_img]
+                    else:
+                        st.warning("Not found in databases. Use photo scan instead.")
+                else:
+                    st.error("Could not read barcode. Try a clearer image.")
+    
+    # Analyze button - FIXED (ONLY ONE VERSION)
+    if images or st.session_state.get('barcode_info'):
+        if st.button("🔍 ANALYZE", use_container_width=True, type="primary"):
+            progress_ph = st.empty()
+            def update_prog(pct, msg):
+                icons = ['🔍', '📋', '⚖️', '✨']
+                icon = icons[min(int(pct * 4), 3)]
+                progress_ph.markdown(f"<div class='progress-box'><div style='font-size:2rem;'>{icon}</div><div style='font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
+            
+            user_profiles = get_profiles()
+            user_allergies = get_allergies()
+            bi = st.session_state.get('barcode_info')
+            user_id = get_user_id()
+            
+            # Check if barcode-only mode
+            if st.session_state.get('barcode_only') and bi and bi.get('found'):
+                result = analyze_from_barcode_data(bi, st.session_state.loc, update_prog, user_profiles, user_allergies)
+                st.session_state.barcode_only = False
+            else:
+                result = analyze_product(images, st.session_state.loc, update_prog, bi, user_profiles, user_allergies)
+            
+            progress_ph.empty()
+            
+            if result.get('readable', True) and result.get('score', 0) > 0:
+                thumb = None
+                try:
+                    if images and len(images) > 0:
+                        images[0].seek(0)
+                        img = Image.open(images[0])
+                        img.thumbnail((100, 100))
+                        buf = BytesIO()
+                        img.save(buf, format='JPEG', quality=60)
+                        thumb = buf.getvalue()
+                except: 
+                    pass
+                
+                scan_id = save_scan(result, user_id, thumb)
+                cloud_log_scan(result, st.session_state.loc.get('city', ''), st.session_state.loc.get('country', ''), user_id)
+                
+                st.session_state.result = result
+                st.session_state.scan_id = scan_id
+                st.session_state.show_result = True
+                st.session_state.barcode_info = None
+                st.session_state.barcode_only = False
+                st.rerun()
+            else:
+                st.error("❌ Could not analyze. Try a clearer photo.")
+                
 def analyze_from_barcode_data(barcode_info, location, progress_callback, user_profiles=None, user_allergies=None):
     """Analyze product using only barcode database information"""
-    progress_callback(0.1, "Processing barcode data...")
-    
-    if not GEMINI_API_KEY:
-        return {"product_name": "API Key Missing", "score": 0, "verdict": "UNCLEAR", "readable": False}
-    
-    product_name = barcode_info.get('name', 'Unknown Product')
-    brand = barcode_info.get('brand', '')
-    
-    # Check for verified score first
-    verified = get_verified_score(product_name, brand)
-    if verified and verified['scan_count'] >= 2:
-        progress_callback(1.0, "Using verified score!")
-        return {
-            'product_name': product_name,
-            'brand': brand,
-            'score': verified['score'],
-            'verdict': get_verdict(verified['score']),
-            'violations': verified.get('violations', []),
-            'readable': True,
-            'ingredients': barcode_info.get('ingredients', '').split(', ') if barcode_info.get('ingredients') else [],
-            'product_category': 'CATEGORY_FOOD',
-            'product_type': barcode_info.get('product_type', ''),
-            'main_issue': 'Verified product',
-            'positive': 'Database verified',
-            'bonuses': [],
-            'ingredients_flagged': [],
-            'good_ingredients': [],
-            'front_claims': [],
-            'fine_print': [],
-            'notifications': []
-        }
-    
-    progress_callback(0.3, "Analyzing ingredients...")
-    
-    # Build analysis prompt from barcode data
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.1})
-    
-    nutrition_str = json.dumps(barcode_info.get('nutrition', {}), indent=2)
-    
-    prompt = f"""Analyze this product from barcode database using HonestWorld's 20 Integrity Laws:
+   prompt = f"""Analyze this product from barcode database using HonestWorld's 20 Integrity Laws:
 
 **Product:** {product_name}
 **Brand:** {brand}
@@ -1633,32 +1692,38 @@ def analyze_from_barcode_data(barcode_info, location, progress_callback, user_pr
 **Categories:** {barcode_info.get('categories', '')}
 **Nutrition:** {nutrition_str}
 
-Apply the SAME analysis as photo scans:
+CRITICAL: Write PLAIN TEXT only - NO HTML tags like <div>, </div>, <span>, etc.
+
+For "evidence": Write clear sentences describing what you found
+Example GOOD: "Contains methylparaben and propylparaben which are parabens"
+Example BAD: "</div>" or "Paraben Free" or "<div>text</div>"
+
+Apply analysis:
 1. Classify product category (CATEGORY_FOOD, CATEGORY_COSMETIC, etc.)
 2. Check violations of the 20 Integrity Laws
-3. Flag concerning ingredients with citations
+3. Flag concerning ingredients with SPECIFIC concerns
 4. Calculate score (base 85, deduct for issues)
 
 Location: {location.get('city', '')}, {location.get('country', '')}
 
-Return valid JSON:
+Return valid JSON with NO HTML in any field:
 {{
     "product_name": "exact name",
     "brand": "brand",
     "product_category": "CATEGORY_X",
     "product_type": "type",
     "readable": true,
-    "score": <0-100>,
-    "violations": [{{"law": num, "name": "...", "points": -X, "evidence": "...", "source": "..."}}],
-    "bonuses": [{{"name": "...", "points": +X, "evidence": "..."}}],
-    "ingredients": ["list"],
-    "ingredients_flagged": [{{"name": "...", "concern": "...", "source": "..."}}],
-    "good_ingredients": ["list"],
-    "main_issue": "primary concern",
-    "positive": "main positive",
-    "front_claims": ["claims"],
-    "fine_print": ["warnings"],
-    "confidence": "high/medium/low"
+    "score": 75,
+    "violations": [{{"law": 5, "name": "Natural Fallacy", "points": -12, "evidence": "Claims natural but contains synthetic preservatives", "source": "EU Regulation"}}],
+    "bonuses": [{{"name": "Bonus", "points": 5, "evidence": "Good reason"}}],
+    "ingredients": ["ingredient1", "ingredient2"],
+    "ingredients_flagged": [{{"name": "methylparaben", "concern": "Potential hormone disruptor", "source": "EU SCCS"}}],
+    "good_ingredients": ["vitamin E"],
+    "main_issue": "Contains parabens",
+    "positive": "Good antioxidants",
+    "front_claims": ["Natural"],
+    "fine_print": ["External use only"],
+    "confidence": "high"
 }}
 """
     
