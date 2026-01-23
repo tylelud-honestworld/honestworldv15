@@ -1532,6 +1532,54 @@ def render_scan_interface():
                 else:
                     st.error("Could not read barcode. Try a clearer image.")
     
+    # Analyze button
+    if images or st.session_state.get('barcode_info'):
+        if st.button("🔍 ANALYZE", use_container_width=True, type="primary"):
+            progress_ph = st.empty()
+            def update_prog(pct, msg):
+                icons = ['🔍', '📋', '⚖️', '✨']
+                icon = icons[min(int(pct * 4), 3)]
+                progress_ph.markdown(f"<div class='progress-box'><div style='font-size:2rem;'>{icon}</div><div style='font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
+            
+            user_profiles = get_profiles()
+            user_allergies = get_allergies()
+            bi = st.session_state.get('barcode_info')
+            user_id = get_user_id()
+            
+            # Check if barcode-only mode
+            if st.session_state.get('barcode_only') and bi and bi.get('found'):
+                result = analyze_from_barcode_data(bi, st.session_state.loc, update_prog, user_profiles, user_allergies)
+                st.session_state.barcode_only = False
+            else:
+                result = analyze_product(images, st.session_state.loc, update_prog, bi, user_profiles, user_allergies)
+            
+            progress_ph.empty()
+            
+            if result.get('readable', True) and result.get('score', 0) > 0:
+                thumb = None
+                try:
+                    if images and len(images) > 0:
+                        images[0].seek(0)
+                        img = Image.open(images[0])
+                        img.thumbnail((100, 100))
+                        buf = BytesIO()
+                        img.save(buf, format='JPEG', quality=60)
+                        thumb = buf.getvalue()
+                except: 
+                    pass
+                
+                scan_id = save_scan(result, user_id, thumb)
+                cloud_log_scan(result, st.session_state.loc.get('city', ''), st.session_state.loc.get('country', ''), user_id)
+                
+                st.session_state.result = result
+                st.session_state.scan_id = scan_id
+                st.session_state.show_result = True
+                st.session_state.barcode_info = None
+                st.session_state.barcode_only = False
+                st.rerun()
+            else:
+                st.error("❌ Could not analyze. Try a clearer photo.")
+    
     # Analyze button - FIXED
     if images or st.session_state.get('barcode_info'):
         if st.button("🔍 ANALYZE", use_container_width=True, type="primary"):
