@@ -1684,7 +1684,7 @@ def render_scan_interface():
                 
 def analyze_from_barcode_data(barcode_info, location, progress_callback, user_profiles=None, user_allergies=None):
     """Analyze product using only barcode database information"""
-   prompt = f"""Analyze this product from barcode database using HonestWorld's 20 Integrity Laws:
+    prompt = f"""Analyze this product from barcode database using HonestWorld's 20 Integrity Laws:
 
 **Product:** {product_name}
 **Brand:** {brand}
