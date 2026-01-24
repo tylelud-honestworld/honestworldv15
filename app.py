@@ -1,15 +1,14 @@
 """
-🌍 HONESTWORLD v30.0 - GLOBAL LIVE MAP EDITION
-All Features Preserved • Global Live Map • Better Scoring • Location-Aware
+🌍 HONESTWORLD v31.0 - LOGIC GATES EDITION
+All Features Preserved • Logic Gates • Implied Promise • Web Search • Better Share Images
 
-FIXES FROM v29:
-1. Restored ALL 6 share buttons (Twitter, Facebook, WhatsApp, Telegram, Instagram, TikTok)
-2. Fixed location display in header
-3. Added Global Live Map with heatmap
-4. Better scoring (water as #1 ingredient = -15 pts)
-5. Location-aware alternatives (AU users see Australian stores)
-6. Privacy jitter for coordinates (50-100m)
-7. Geohash storage for map clustering
+NEW IN v31:
+1. Logic Gates - Context-aware exception rules (Law 1 ignores beverages, etc.)
+2. Implied Promise Analysis - What is the product pretending to be?
+3. Web Search - Pulls additional product info from the web after barcode
+4. Scoring scale adjusted (Base 100, your thresholds)
+5. Better share images with app description text
+6. ALL v30 features preserved
 """
 
 import streamlit as st
@@ -32,8 +31,8 @@ import math
 
 st.set_page_config(page_title="HonestWorld", page_icon="🌍", layout="centered", initial_sidebar_state="collapsed")
 
-VERSION = "30.0"
-LOCAL_DB = Path.home() / "honestworld_v30.db"
+VERSION = "31.0"
+LOCAL_DB = Path.home() / "honestworld_v31.db"
 
 def get_secret(key, default=""):
     try: return st.secrets.get(key, os.environ.get(key, default))
@@ -51,93 +50,246 @@ BASE32 = '0123456789bcdefghjkmnpqrstuvwxyz'
 
 def encode_geohash(lat, lon, precision=6):
     """Encode lat/lon to geohash string"""
-    lat_range = [-90.0, 90.0]
-    lon_range = [-180.0, 180.0]
-    geohash = []
-    bits = [16, 8, 4, 2, 1]
-    bit = 0
-    ch = 0
-    even = True
-    
+    lat_range, lon_range = [-90.0, 90.0], [-180.0, 180.0]
+    geohash, bits, bit, ch, even = [], [16, 8, 4, 2, 1], 0, 0, True
     while len(geohash) < precision:
         if even:
             mid = (lon_range[0] + lon_range[1]) / 2
-            if lon > mid:
-                ch |= bits[bit]
-                lon_range[0] = mid
-            else:
-                lon_range[1] = mid
+            if lon > mid: ch |= bits[bit]; lon_range[0] = mid
+            else: lon_range[1] = mid
         else:
             mid = (lat_range[0] + lat_range[1]) / 2
-            if lat > mid:
-                ch |= bits[bit]
-                lat_range[0] = mid
-            else:
-                lat_range[1] = mid
-        
+            if lat > mid: ch |= bits[bit]; lat_range[0] = mid
+            else: lat_range[1] = mid
         even = not even
-        if bit < 4:
-            bit += 1
-        else:
-            geohash.append(BASE32[ch])
-            bit = 0
-            ch = 0
-    
+        if bit < 4: bit += 1
+        else: geohash.append(BASE32[ch]); bit, ch = 0, 0
     return ''.join(geohash)
 
 def add_privacy_jitter(lat, lon, meters=75):
     """Add random jitter to coordinates for privacy (50-100m)"""
-    # Earth's radius in meters
     earth_radius = 6371000
-    
-    # Random distance between 50-100 meters
     jitter_distance = random.uniform(50, 100)
-    
-    # Random angle
     angle = random.uniform(0, 2 * math.pi)
-    
-    # Calculate offset
     lat_offset = (jitter_distance * math.cos(angle)) / earth_radius * (180 / math.pi)
     lon_offset = (jitter_distance * math.sin(angle)) / (earth_radius * math.cos(math.radians(lat))) * (180 / math.pi)
-    
     return lat + lat_offset, lon + lon_offset
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PRODUCT CATEGORIES
+# PRODUCT CATEGORIES WITH CONTEXT RULES
 # ═══════════════════════════════════════════════════════════════════════════════
 PRODUCT_CATEGORIES = {
-    "CATEGORY_FOOD": {"name": "Food & Beverage", "icon": "🍎", "subtypes": ["snack", "beverage", "dairy", "cereal", "condiment", "frozen", "canned", "protein_bar", "meal", "spread", "butter", "margarine"], "health_profiles": ["diabetes", "heartcondition", "glutenfree", "vegan", "allergyprone", "keto"]},
-    "CATEGORY_SUPPLEMENT": {"name": "Supplements", "icon": "💊", "subtypes": ["vitamin", "mineral", "herbal", "protein", "probiotic", "omega", "multivitamin"], "health_profiles": ["diabetes", "pregnancy", "vegan", "glutenfree", "allergyprone"]},
-    "CATEGORY_COSMETIC": {"name": "Cosmetics & Personal Care", "icon": "🧴", "subtypes": ["cleanser", "moisturizer", "serum", "sunscreen", "shampoo", "conditioner", "body_lotion", "toner", "mask", "deodorant"], "health_profiles": ["sensitive", "allergyprone", "pregnancy", "baby", "vegan"]},
-    "CATEGORY_ELECTRONICS": {"name": "Electronics", "icon": "📱", "subtypes": ["phone", "laptop", "tablet", "accessory", "cable", "charger", "audio", "wearable"], "health_profiles": []},
-    "CATEGORY_HOUSEHOLD": {"name": "Household", "icon": "🧹", "subtypes": ["cleaner", "detergent", "disinfectant", "air_freshener", "laundry"], "health_profiles": ["sensitive", "allergyprone", "baby", "pregnancy"]},
-    "CATEGORY_BOOK": {"name": "Books", "icon": "📚", "subtypes": ["fiction", "non-fiction", "textbook", "children", "reference"], "health_profiles": []}
+    "CATEGORY_FOOD": {
+        "name": "Food & Beverage", "icon": "🍎",
+        "subtypes": ["snack", "beverage", "dairy", "cereal", "condiment", "frozen", "canned", "protein_bar", "meal", "spread", "butter", "margarine", "candy", "dessert", "soup", "sauce"],
+        "health_profiles": ["diabetes", "heartcondition", "glutenfree", "vegan", "allergyprone", "keto"],
+        "water_expected": ["beverage", "soup", "sauce", "drink", "juice", "tea", "coffee"]  # Water is expected here
+    },
+    "CATEGORY_SUPPLEMENT": {
+        "name": "Supplements", "icon": "💊",
+        "subtypes": ["vitamin", "mineral", "herbal", "protein", "probiotic", "omega", "multivitamin"],
+        "health_profiles": ["diabetes", "pregnancy", "vegan", "glutenfree", "allergyprone"],
+        "water_expected": []
+    },
+    "CATEGORY_COSMETIC": {
+        "name": "Cosmetics & Personal Care", "icon": "🧴",
+        "subtypes": ["cleanser", "moisturizer", "serum", "sunscreen", "shampoo", "conditioner", "body_lotion", "toner", "mask", "deodorant", "micellar", "soap", "bodywash"],
+        "health_profiles": ["sensitive", "allergyprone", "pregnancy", "baby", "vegan"],
+        "water_expected": ["shampoo", "conditioner", "toner", "micellar", "bodywash", "soap", "cleanser"]  # Water functionally required
+    },
+    "CATEGORY_ELECTRONICS": {
+        "name": "Electronics", "icon": "📱",
+        "subtypes": ["phone", "laptop", "tablet", "accessory", "cable", "charger", "audio", "wearable"],
+        "health_profiles": [],
+        "water_expected": []
+    },
+    "CATEGORY_HOUSEHOLD": {
+        "name": "Household", "icon": "🧹",
+        "subtypes": ["cleaner", "detergent", "disinfectant", "air_freshener", "laundry"],
+        "health_profiles": ["sensitive", "allergyprone", "baby", "pregnancy"],
+        "water_expected": ["cleaner", "detergent", "disinfectant"]
+    },
+    "CATEGORY_BOOK": {
+        "name": "Books", "icon": "📚",
+        "subtypes": ["fiction", "non-fiction", "textbook", "children", "reference"],
+        "health_profiles": [],
+        "water_expected": []
+    }
 }
 
+# Products where sugar is EXPECTED (not deceptive)
+SUGAR_EXPECTED_PRODUCTS = ["candy", "chocolate", "dessert", "ice cream", "cake", "cookie", "soda", "cola", "sweet", "confectionery", "jam", "jelly", "syrup", "honey"]
+
+# Products that make health claims (sugar IS deceptive here)
+HEALTH_CLAIM_KEYWORDS = ["healthy", "fitness", "protein", "diet", "low gi", "natural", "organic", "wholesome", "nutritious", "wellness", "slim", "lite", "light"]
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# THE 20 INTEGRITY LAWS - Enhanced descriptions for AI
+# THE 20 INTEGRITY LAWS WITH LOGIC GATES
 # ═══════════════════════════════════════════════════════════════════════════════
 INTEGRITY_LAWS = {
-    1: {"name": "Water-Down Deception", "base_points": -15, "description": "Premium-priced product but #1 ingredient is water or cheap filler. If a product costs premium price but main ingredient is water, this is deceptive.", "tip": "Check if first ingredient matches the premium price", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD"], "triggers": ["water", "aqua", "eau"]},
-    2: {"name": "Fairy Dusting", "base_points": -12, "description": "Hero ingredient advertised on front is below position #5 in actual ingredients list", "tip": "Ingredients listed by quantity", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
-    3: {"name": "Split Sugar Trick", "base_points": -18, "description": "Sugar split into 3+ different names to hide total sugar content", "tip": "Add up ALL sugar types", "applies_to": ["CATEGORY_FOOD"]},
-    4: {"name": "Low-Fat Trap", "base_points": -10, "description": "Claims 'low fat' but compensates with high sugar", "tip": "Low-fat often means high sugar", "applies_to": ["CATEGORY_FOOD"]},
-    5: {"name": "Natural Fallacy", "base_points": -12, "description": "Claims 'natural', 'bio', or 'organic' but contains synthetics or claim is unverified/uncertified", "tip": "'Natural' and 'Bio' are often unregulated marketing terms", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_HOUSEHOLD"], "triggers": ["natural", "bio", "organic", "pure"]},
-    6: {"name": "Made-With Loophole", "base_points": -8, "description": "'Made with real X' but X is minimal amount", "tip": "'Made with' requires only tiny amount", "applies_to": ["CATEGORY_FOOD"]},
-    7: {"name": "Serving Size Trick", "base_points": -10, "description": "Unrealistically small serving size to make nutrition look better", "tip": "Check servings per container", "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"]},
-    8: {"name": "Slack Fill", "base_points": -8, "description": "Package mostly air/empty space", "tip": "Check net weight, not package size", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
-    9: {"name": "Spec Inflation", "base_points": -15, "description": "'Up to X speed/capacity' unrealistic", "tip": "'Up to' means lab conditions", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    10: {"name": "Compatibility Lie", "base_points": -12, "description": "'Universal' with hidden exceptions", "tip": "Check compatibility in fine print", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    11: {"name": "Military Grade Myth", "base_points": -10, "description": "Claims 'military grade' without MIL-STD cert", "tip": "Real military spec cites MIL-STD number", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    12: {"name": "Battery Fiction", "base_points": -12, "description": "Unrealistic battery life claims", "tip": "Tested with minimal usage", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    13: {"name": "Clinical Ghost", "base_points": -12, "description": "'Clinically proven' or 'scientifically tested' without citing actual study", "tip": "Real proof includes study details", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"]},
-    14: {"name": "Concentration Trick", "base_points": -10, "description": "Active ingredient too diluted to be effective", "tip": "Effective: Vitamin C 10-20%, Retinol 0.3-1%", "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"]},
-    15: {"name": "Free Trap", "base_points": -15, "description": "'Free' requires credit card/hidden purchase", "tip": "Free trial usually auto-charges", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    16: {"name": "Unlimited Lie", "base_points": -18, "description": "'Unlimited' with hidden caps", "tip": "'Unlimited' rarely means unlimited", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    17: {"name": "Lifetime Illusion", "base_points": -10, "description": "'Lifetime warranty' with exclusions", "tip": "'Lifetime' has many exclusions", "applies_to": ["CATEGORY_ELECTRONICS"]},
-    18: {"name": "Photo vs Reality", "base_points": -12, "description": "Package photo much better than actual product", "tip": "Photos are professionally styled", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]},
-    19: {"name": "Fake Certification", "base_points": -15, "description": "Claims certification (organic, bio, cruelty-free) without verifiable certification logo/number", "tip": "Real certs show logo and certification ID", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT", "CATEGORY_ELECTRONICS"]},
-    20: {"name": "Name Trick", "base_points": -10, "description": "Product name implies ingredient that's barely present", "tip": "'Honey Oat' doesn't mean much honey", "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"]}
+    1: {
+        "name": "Water-Down Deception", 
+        "base_points": -15, 
+        "description": "Premium-priced product but #1 ingredient is water or cheap filler",
+        "tip": "Check if first ingredient matches the premium price",
+        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD"],
+        "logic_gate": "APPLY IF product is cream, serum, concentrate, or premium paste. IGNORE IF product is beverage, soup, toner, micellar water, shampoo, or cleanser where water is functionally required.",
+        "ignore_subtypes": ["beverage", "soup", "drink", "juice", "shampoo", "conditioner", "toner", "micellar", "bodywash", "cleanser", "tea", "coffee"]
+    },
+    2: {
+        "name": "Fairy Dusting", 
+        "base_points": -12, 
+        "description": "Hero ingredient advertised on front is below position #5 in actual ingredients list",
+        "tip": "Ingredients listed by quantity",
+        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"],
+        "logic_gate": "ALWAYS APPLY if front claims specific ingredient prominence"
+    },
+    3: {
+        "name": "Split Sugar Trick", 
+        "base_points": -18, 
+        "description": "Sugar split into 3+ different names to hide total sugar content",
+        "tip": "Add up ALL sugar types",
+        "applies_to": ["CATEGORY_FOOD"],
+        "logic_gate": "APPLY IF product claims 'healthy', 'fitness', 'natural', or 'low sugar'. IGNORE IF product is openly candy, soda, or dessert (consumer expects sugar). Only flag if HIDDEN names mask total amount.",
+        "ignore_subtypes": ["candy", "chocolate", "dessert", "soda", "ice cream", "cake", "cookie", "confectionery"]
+    },
+    4: {
+        "name": "Low-Fat Trap", 
+        "base_points": -10, 
+        "description": "Claims 'low fat' but compensates with high sugar",
+        "tip": "Low-fat often means high sugar",
+        "applies_to": ["CATEGORY_FOOD"],
+        "logic_gate": "APPLY ONLY IF product makes 'low fat' or 'reduced fat' claim"
+    },
+    5: {
+        "name": "Natural Fallacy", 
+        "base_points": -12, 
+        "description": "Claims 'natural', 'bio', or 'organic' but contains synthetics or claim is unverified",
+        "tip": "'Natural' and 'Bio' are often unregulated marketing terms",
+        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_FOOD", "CATEGORY_HOUSEHOLD"],
+        "logic_gate": "STRICT MODE: If packaging uses green leaves, 'Earth' imagery, wooden textures, or words like 'Pure/Raw/Natural/Bio/Organic' but ingredients contain synthetics OR no certification visible -> DEDUCT POINTS",
+        "visual_triggers": ["green leaves", "earth", "nature", "wood", "plant", "farm", "organic logo without certification"]
+    },
+    6: {
+        "name": "Made-With Loophole", 
+        "base_points": -8, 
+        "description": "'Made with real X' but X is minimal amount",
+        "tip": "'Made with' requires only tiny amount",
+        "applies_to": ["CATEGORY_FOOD"],
+        "logic_gate": "APPLY IF front says 'Made with real...' but that ingredient is below position #5"
+    },
+    7: {
+        "name": "Serving Size Trick", 
+        "base_points": -10, 
+        "description": "Unrealistically small serving size to make nutrition look better",
+        "tip": "Check servings per container",
+        "applies_to": ["CATEGORY_FOOD", "CATEGORY_SUPPLEMENT"],
+        "logic_gate": "APPLY IF serving size is unusually small (e.g., 3 chips, 1/4 cup cereal, 2 cookies)"
+    },
+    8: {
+        "name": "Slack Fill", 
+        "base_points": -8, 
+        "description": "Package mostly air/empty space",
+        "tip": "Check net weight, not package size",
+        "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"],
+        "logic_gate": "APPLY IF visible evidence of excessive empty space in packaging"
+    },
+    9: {
+        "name": "Spec Inflation", 
+        "base_points": -15, 
+        "description": "'Up to X speed/capacity' unrealistic",
+        "tip": "'Up to' means lab conditions",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS. Check for 'up to', 'maximum', 'peak' claims"
+    },
+    10: {
+        "name": "Compatibility Lie", 
+        "base_points": -12, 
+        "description": "'Universal' with hidden exceptions",
+        "tip": "Check compatibility in fine print",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS"
+    },
+    11: {
+        "name": "Military Grade Myth", 
+        "base_points": -10, 
+        "description": "Claims 'military grade' without MIL-STD cert",
+        "tip": "Real military spec cites MIL-STD number",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS"
+    },
+    12: {
+        "name": "Battery Fiction", 
+        "base_points": -12, 
+        "description": "Unrealistic battery life claims",
+        "tip": "Tested with minimal usage",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS"
+    },
+    13: {
+        "name": "Clinical Ghost", 
+        "base_points": -12, 
+        "description": "'Clinically proven' or 'scientifically tested' without citing actual study",
+        "tip": "Real proof includes study details",
+        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"],
+        "logic_gate": "APPLY IF claims 'clinically proven', 'dermatologist tested', 'scientifically proven' without visible study citation"
+    },
+    14: {
+        "name": "Concentration Trick", 
+        "base_points": -10, 
+        "description": "Active ingredient too diluted to be effective",
+        "tip": "Effective: Vitamin C 10-20%, Retinol 0.3-1%, Niacinamide 2-5%",
+        "applies_to": ["CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT"],
+        "logic_gate": "APPLY IF product advertises specific active but concentration not stated or known to be too low"
+    },
+    15: {
+        "name": "Free Trap", 
+        "base_points": -15, 
+        "description": "'Free' requires credit card/hidden purchase",
+        "tip": "Free trial usually auto-charges",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS/SERVICES"
+    },
+    16: {
+        "name": "Unlimited Lie", 
+        "base_points": -18, 
+        "description": "'Unlimited' with hidden caps",
+        "tip": "'Unlimited' rarely means unlimited",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS/SERVICES"
+    },
+    17: {
+        "name": "Lifetime Illusion", 
+        "base_points": -10, 
+        "description": "'Lifetime warranty' with exclusions",
+        "tip": "'Lifetime' has many exclusions",
+        "applies_to": ["CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY ONLY TO ELECTRONICS"
+    },
+    18: {
+        "name": "Photo vs Reality", 
+        "base_points": -12, 
+        "description": "Package photo much better than actual product likely looks",
+        "tip": "Photos are professionally styled",
+        "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"],
+        "logic_gate": "APPLY IF product photo is clearly stylized/enhanced beyond reasonable expectation"
+    },
+    19: {
+        "name": "Fake Certification", 
+        "base_points": -15, 
+        "description": "Claims certification (organic, bio, cruelty-free) without verifiable certification logo/number",
+        "tip": "Real certs show logo and certification ID number",
+        "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC", "CATEGORY_SUPPLEMENT", "CATEGORY_ELECTRONICS"],
+        "logic_gate": "APPLY IF claims 'certified organic', 'certified bio', etc. but no official certification logo with ID number visible"
+    },
+    20: {
+        "name": "Name Trick", 
+        "base_points": -10, 
+        "description": "Product name implies ingredient that's barely present",
+        "tip": "'Honey Oat' doesn't mean much honey",
+        "applies_to": ["CATEGORY_FOOD", "CATEGORY_COSMETIC"],
+        "logic_gate": "APPLY IF product NAME contains ingredient that is below position #5 in ingredients list"
+    }
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -210,7 +362,7 @@ ALTERNATIVES_BY_COUNTRY = {
         "margarine": {"name": "Nuttelex Buttery", "retailer": "Woolworths, Coles", "score": 86, "why": "Australian, coconut oil based"},
         "cleanser": {"name": "Cetaphil Gentle Skin Cleanser", "retailer": "Chemist Warehouse, Priceline, Woolworths, Coles", "score": 85, "why": "Widely available, fragrance-free options"},
         "moisturizer": {"name": "CeraVe Moisturising Cream", "retailer": "Chemist Warehouse, Priceline", "score": 92, "why": "Ceramides, fragrance-free"},
-        "serum": {"name": "The Ordinary Niacinamide 10%", "retailer": "Priceline, Mecca, Adore Beauty", "score": 91, "why": "Affordable, effective"},
+        "serum": {"name": "The Ordinary Niacinamide 10%", "retailer": "Priceline, Mecca, Adore Beauty", "score": 91, "why": "Affordable, effective concentration"},
         "sunscreen": {"name": "Cancer Council SPF 50+", "retailer": "Woolworths, Coles, Chemist Warehouse", "score": 90, "why": "Australian made, high protection"},
         "shampoo": {"name": "Sukin Natural Shampoo", "retailer": "Woolworths, Coles, Chemist Warehouse", "score": 88, "why": "Australian, natural ingredients"},
         "body_lotion": {"name": "QV Skin Lotion", "retailer": "Chemist Warehouse, Priceline, Woolworths", "score": 93, "why": "Dermatologist recommended, fragrance-free"},
@@ -268,7 +420,6 @@ def get_alternative(product_name, product_type, product_category, country_code):
     country_alts = ALTERNATIVES_BY_COUNTRY.get(country_code, ALTERNATIVES_BY_COUNTRY['OTHER'])
     search = f"{product_name} {product_type or ''}".lower()
     
-    # Check specific product types first
     type_keywords = ['spread', 'butter', 'margarine', 'cleanser', 'moisturizer', 'serum', 'shampoo', 'lotion', 'sunscreen', 'deodorant', 'vitamin', 'supplement', 'cereal', 'snack', 'bar']
     
     for keyword in type_keywords:
@@ -278,27 +429,24 @@ def get_alternative(product_name, product_type, product_category, country_code):
                 if alt['name'].lower() not in search.lower():
                     return alt
     
-    # Check product type from analysis
     if product_type:
         pt_lower = product_type.lower()
         for keyword in type_keywords:
             if keyword in pt_lower and keyword in country_alts:
                 return country_alts[keyword]
     
-    # Category defaults
     if product_category == 'CATEGORY_SUPPLEMENT':
         return country_alts.get('supplement', country_alts.get('vitamin', country_alts['default']))
     elif product_category == 'CATEGORY_COSMETIC':
         return country_alts.get('moisturizer', country_alts['default'])
     elif product_category == 'CATEGORY_FOOD':
-        # Check if it's a spread/butter type product
         if any(w in search for w in ['spread', 'butter', 'margarine', 'creamy', 'bio']):
             return country_alts.get('spread', country_alts.get('butter', country_alts['default']))
     
     return country_alts['default']
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LOCATION DETECTION - Enhanced with coordinates for map
+# LOCATION DETECTION
 # ═══════════════════════════════════════════════════════════════════════════════
 RETAILERS_DISPLAY = {
     "AU": ["Chemist Warehouse", "Priceline", "Woolworths", "Coles"],
@@ -316,7 +464,6 @@ def detect_location_enhanced():
     location_services = [
         {'url': 'https://ipapi.co/json/', 'extract': lambda d: (d.get('city'), d.get('country_name'), d.get('country_code'), d.get('latitude'), d.get('longitude'), d.get('region'))},
         {'url': 'https://ip-api.com/json/', 'extract': lambda d: (d.get('city'), d.get('country'), d.get('countryCode'), d.get('lat'), d.get('lon'), d.get('regionName'))},
-        {'url': 'https://ipinfo.io/json', 'extract': lambda d: (d.get('city'), d.get('country'), d.get('country'), *([float(x) for x in d.get('loc', '0,0').split(',')] if d.get('loc') else [0, 0]), d.get('region'))},
     ]
     
     for service in location_services:
@@ -329,40 +476,35 @@ def detect_location_enhanced():
                 
                 if city and city not in ['', 'Unknown', None]:
                     code = code.upper() if code and len(code) == 2 else 'OTHER'
-                    
-                    # Apply privacy jitter to coordinates
                     if lat and lon:
                         lat_jittered, lon_jittered = add_privacy_jitter(float(lat), float(lon))
                         geohash = encode_geohash(lat_jittered, lon_jittered)
                     else:
                         lat_jittered, lon_jittered, geohash = None, None, None
                     
-                    return {
-                        'city': city,
-                        'region': region or '',
-                        'country': country or '',
-                        'code': code,
-                        'retailers': RETAILERS_DISPLAY.get(code, RETAILERS_DISPLAY['OTHER']),
-                        'lat': lat_jittered,
-                        'lon': lon_jittered,
-                        'geohash': geohash
-                    }
-        except Exception as e:
-            continue
+                    return {'city': city, 'region': region or '', 'country': country or '', 'code': code, 'retailers': RETAILERS_DISPLAY.get(code, RETAILERS_DISPLAY['OTHER']), 'lat': lat_jittered, 'lon': lon_jittered, 'geohash': geohash}
+        except: continue
     
     return {'city': 'Unknown', 'region': '', 'country': 'Unknown', 'code': 'OTHER', 'retailers': RETAILERS_DISPLAY['OTHER'], 'needs_manual': True, 'lat': None, 'lon': None, 'geohash': None}
 
 def get_verdict(score):
+    """Updated scoring thresholds per user request"""
     if score >= 90: return "EXCEPTIONAL"
-    elif score >= 75: return "BUY"
-    elif score >= 50: return "CAUTION"
+    elif score >= 70: return "BUY"
+    elif score >= 40: return "CAUTION"
     return "AVOID"
 
 def get_verdict_display(verdict):
-    return {'EXCEPTIONAL': {'icon': '★', 'text': 'EXCEPTIONAL', 'color': '#06b6d4'}, 'BUY': {'icon': '✓', 'text': 'GOOD TO BUY', 'color': '#22c55e'}, 'CAUTION': {'icon': '!', 'text': 'USE CAUTION', 'color': '#f59e0b'}, 'AVOID': {'icon': '✗', 'text': 'AVOID', 'color': '#ef4444'}, 'UNCLEAR': {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'}}.get(verdict, {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'})
+    return {
+        'EXCEPTIONAL': {'icon': '★', 'text': 'EXCEPTIONAL', 'color': '#06b6d4'},
+        'BUY': {'icon': '✓', 'text': 'GOOD TO BUY', 'color': '#22c55e'},
+        'CAUTION': {'icon': '!', 'text': 'USE CAUTION', 'color': '#f59e0b'},
+        'AVOID': {'icon': '✗', 'text': 'AVOID', 'color': '#ef4444'},
+        'UNCLEAR': {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'}
+    }.get(verdict, {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'})
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# DATABASE FUNCTIONS - Enhanced with geolocation
+# DATABASE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 def normalize_product_name(name):
     if not name: return ""
@@ -375,19 +517,9 @@ def get_product_hash(product_name, brand=""):
 def init_db():
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
-    
-    # Main scans table with geolocation
-    c.execute('''CREATE TABLE IF NOT EXISTS scans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id TEXT UNIQUE, user_id TEXT,
-        ts DATETIME DEFAULT CURRENT_TIMESTAMP, product TEXT, brand TEXT,
-        product_hash TEXT, product_category TEXT, product_type TEXT,
-        score INTEGER, verdict TEXT, ingredients TEXT, violations TEXT,
-        bonuses TEXT, notifications TEXT, thumb BLOB, favorite INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0,
-        lat REAL, lon REAL, geohash TEXT, city TEXT, country TEXT
-    )''')
-    
+    c.execute('''CREATE TABLE IF NOT EXISTS scans (id INTEGER PRIMARY KEY AUTOINCREMENT, scan_id TEXT UNIQUE, user_id TEXT, ts DATETIME DEFAULT CURRENT_TIMESTAMP, product TEXT, brand TEXT, product_hash TEXT, product_category TEXT, product_type TEXT, score INTEGER, verdict TEXT, ingredients TEXT, violations TEXT, bonuses TEXT, notifications TEXT, thumb BLOB, favorite INTEGER DEFAULT 0, deleted INTEGER DEFAULT 0, lat REAL, lon REAL, geohash TEXT, city TEXT, country TEXT, implied_promise TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS verified_products (id INTEGER PRIMARY KEY AUTOINCREMENT, product_hash TEXT UNIQUE, product_name TEXT, brand TEXT, verified_score INTEGER, scan_count INTEGER DEFAULT 1, product_category TEXT, ingredients TEXT, violations TEXT, last_verified DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS barcode_cache (barcode TEXT PRIMARY KEY, product_name TEXT, brand TEXT, ingredients TEXT, product_type TEXT, categories TEXT, nutrition TEXT, image_url TEXT, source TEXT, last_updated DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS barcode_cache (barcode TEXT PRIMARY KEY, product_name TEXT, brand TEXT, ingredients TEXT, product_type TEXT, categories TEXT, nutrition TEXT, image_url TEXT, source TEXT, description TEXT, last_updated DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('CREATE TABLE IF NOT EXISTS allergies (a TEXT PRIMARY KEY)')
     c.execute('CREATE TABLE IF NOT EXISTS profiles (p TEXT PRIMARY KEY)')
     c.execute('''CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY DEFAULT 1, scans INTEGER DEFAULT 0, avoided INTEGER DEFAULT 0, streak INTEGER DEFAULT 0, best_streak INTEGER DEFAULT 0, last_scan DATE)''')
@@ -397,21 +529,11 @@ def init_db():
     if not c.fetchone():
         c.execute('INSERT INTO user_info (id, user_id) VALUES (1, ?)', (str(uuid.uuid4()),))
     
-    # Add geolocation columns if they don't exist (for upgrades)
-    try:
-        c.execute('ALTER TABLE scans ADD COLUMN lat REAL')
-    except: pass
-    try:
-        c.execute('ALTER TABLE scans ADD COLUMN lon REAL')
-    except: pass
-    try:
-        c.execute('ALTER TABLE scans ADD COLUMN geohash TEXT')
-    except: pass
-    try:
-        c.execute('ALTER TABLE scans ADD COLUMN city TEXT')
-    except: pass
-    try:
-        c.execute('ALTER TABLE scans ADD COLUMN country TEXT')
+    # Add columns if missing (for upgrades)
+    for col in ['lat', 'lon', 'geohash', 'city', 'country', 'implied_promise']:
+        try: c.execute(f'ALTER TABLE scans ADD COLUMN {col} TEXT')
+        except: pass
+    try: c.execute('ALTER TABLE barcode_cache ADD COLUMN description TEXT')
     except: pass
     
     conn.commit()
@@ -454,15 +576,13 @@ def get_verified_score(product_name, brand=""):
         c.execute('SELECT verified_score, scan_count, violations FROM verified_products WHERE product_hash = ?', (product_hash,))
         r = c.fetchone()
         conn.close()
-        if r and r[1] >= 2:
-            return {'score': r[0], 'scan_count': r[1], 'violations': json.loads(r[2]) if r[2] else []}
+        if r and r[1] >= 2: return {'score': r[0], 'scan_count': r[1], 'violations': json.loads(r[2]) if r[2] else []}
     except: pass
     return None
 
 def save_verified_score(result):
     try:
-        product_name = result.get('product_name', '')
-        brand = result.get('brand', '')
+        product_name, brand = result.get('product_name', ''), result.get('brand', '')
         product_hash = get_product_hash(product_name, brand)
         score = result.get('score', 70)
         conn = sqlite3.connect(LOCAL_DB)
@@ -483,8 +603,6 @@ def save_verified_score(result):
 def save_scan(result, user_id, thumb=None, location=None):
     sid = f"HW-{uuid.uuid4().hex[:8].upper()}"
     product_hash = get_product_hash(result.get('product_name', ''), result.get('brand', ''))
-    
-    # Get location data
     lat = location.get('lat') if location else None
     lon = location.get('lon') if location else None
     geohash = location.get('geohash') if location else None
@@ -493,8 +611,8 @@ def save_scan(result, user_id, thumb=None, location=None):
     
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
-    c.execute('''INSERT INTO scans (scan_id, user_id, product, brand, product_hash, product_category, product_type, score, verdict, ingredients, violations, bonuses, notifications, thumb, lat, lon, geohash, city, country) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', 
-              (sid, user_id, result.get('product_name', ''), result.get('brand', ''), product_hash, result.get('product_category', ''), result.get('product_type', ''), result.get('score', 0), result.get('verdict', ''), json.dumps(result.get('ingredients', [])), json.dumps(result.get('violations', [])), json.dumps(result.get('bonuses', [])), json.dumps(result.get('notifications', [])), thumb, lat, lon, geohash, city, country))
+    c.execute('''INSERT INTO scans (scan_id, user_id, product, brand, product_hash, product_category, product_type, score, verdict, ingredients, violations, bonuses, notifications, thumb, lat, lon, geohash, city, country, implied_promise) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', 
+              (sid, user_id, result.get('product_name', ''), result.get('brand', ''), product_hash, result.get('product_category', ''), result.get('product_type', ''), result.get('score', 0), result.get('verdict', ''), json.dumps(result.get('ingredients', [])), json.dumps(result.get('violations', [])), json.dumps(result.get('bonuses', [])), json.dumps(result.get('notifications', [])), thumb, lat, lon, geohash, city, country, result.get('implied_promise', '')))
     
     today = datetime.now().date()
     c.execute('SELECT scans, avoided, streak, best_streak, last_scan FROM stats WHERE id=1')
@@ -524,7 +642,6 @@ def get_history(user_id, n=30):
     return [{'db_id': r[0], 'id': r[1], 'ts': r[2], 'product': r[3], 'brand': r[4], 'score': r[5], 'verdict': r[6], 'thumb': r[7], 'favorite': r[8]} for r in rows]
 
 def get_map_data(limit=500):
-    """Get scan data for map visualization"""
     conn = sqlite3.connect(LOCAL_DB)
     c = conn.cursor()
     c.execute('SELECT lat, lon, geohash, score, verdict, city, country, product, ts FROM scans WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY ts DESC LIMIT ?', (limit,))
@@ -580,6 +697,52 @@ def toggle_favorite(db_id, current):
     conn.close()
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# WEB SEARCH FOR ADDITIONAL PRODUCT INFO
+# ═══════════════════════════════════════════════════════════════════════════════
+def search_product_info_web(product_name, brand=""):
+    """Search the web for additional product information using Gemini grounding"""
+    if not GEMINI_API_KEY or not product_name:
+        return None
+    
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        
+        search_query = f"{brand} {product_name}".strip()
+        
+        prompt = f"""Search for information about this product: "{search_query}"
+
+Find and return:
+1. Product description (what is it, what does it claim to do)
+2. Key marketing claims made by the manufacturer
+3. Any warnings, controversies, or concerns reported
+4. Price range if available
+5. Common consumer complaints or praises
+
+Return as JSON:
+{{
+    "description": "Product description from manufacturer or retailers",
+    "marketing_claims": ["list of claims"],
+    "warnings": ["any warnings or concerns found"],
+    "price_range": "approximate price",
+    "consumer_feedback": "summary of reviews/feedback",
+    "sources": ["source URLs"]
+}}
+
+If you cannot find information, return {{"found": false}}"""
+
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        
+        json_match = re.search(r'\{[\s\S]*\}', text)
+        if json_match:
+            return json.loads(json_match.group(0))
+    except Exception as e:
+        pass
+    
+    return None
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SUPABASE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 def supa_ok():
@@ -598,7 +761,7 @@ def supabase_lookup_barcode(barcode):
             data = r.json()
             if data and len(data) > 0:
                 p = data[0]
-                return {'found': True, 'name': p.get('product_name', ''), 'brand': p.get('brand', ''), 'ingredients': p.get('ingredients', ''), 'product_type': p.get('product_type', ''), 'categories': p.get('categories', ''), 'nutrition': p.get('nutrition', {}), 'image_url': p.get('image_url', ''), 'source': 'HonestWorld Community', 'confidence': 'high', 'crowdsourced': True}
+                return {'found': True, 'name': p.get('product_name', ''), 'brand': p.get('brand', ''), 'ingredients': p.get('ingredients', ''), 'product_type': p.get('product_type', ''), 'categories': p.get('categories', ''), 'nutrition': p.get('nutrition', {}), 'image_url': p.get('image_url', ''), 'description': p.get('description', ''), 'source': 'HonestWorld Community', 'confidence': 'high', 'crowdsourced': True}
     except: pass
     return None
 
@@ -607,20 +770,18 @@ def supabase_save_product(barcode, product_data, user_id):
     try:
         url = f"{SUPABASE_URL}/rest/v1/products"
         headers = supa_headers()
-        payload = {"barcode": barcode, "product_name": product_data.get('name', ''), "brand": product_data.get('brand', ''), "ingredients": product_data.get('ingredients', ''), "product_type": product_data.get('product_type', ''), "categories": product_data.get('categories', ''), "nutrition": json.dumps(product_data.get('nutrition', {})), "contributed_by": user_id, "created_at": datetime.now().isoformat()}
+        payload = {"barcode": barcode, "product_name": product_data.get('name', ''), "brand": product_data.get('brand', ''), "ingredients": product_data.get('ingredients', ''), "product_type": product_data.get('product_type', ''), "categories": product_data.get('categories', ''), "description": product_data.get('description', ''), "nutrition": json.dumps(product_data.get('nutrition', {})), "contributed_by": user_id, "created_at": datetime.now().isoformat()}
         r = requests.post(url, headers=headers, json=payload, timeout=10)
         return r.ok
     except: return False
 
 def supabase_get_global_scans(limit=1000):
-    """Get global scan data from Supabase for world map"""
     if not supa_ok(): return []
     try:
         url = f"{SUPABASE_URL}/rest/v1/scans_log?select=lat,lon,geohash,score,verdict,city,country,product_name,created_at&lat=not.is.null&order=created_at.desc&limit={limit}"
         headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
         r = requests.get(url, headers=headers, timeout=15)
-        if r.ok:
-            return r.json()
+        if r.ok: return r.json()
     except: pass
     return []
 
@@ -629,40 +790,22 @@ def cloud_log_scan(result, location, user_id):
         try:
             url = f"{SUPABASE_URL}/rest/v1/scans_log"
             headers = supa_headers()
-            
-            # Apply privacy jitter before sending to cloud
-            lat = location.get('lat')
-            lon = location.get('lon')
+            lat, lon = location.get('lat'), location.get('lon')
             if lat and lon:
                 lat, lon = add_privacy_jitter(lat, lon)
                 geohash = encode_geohash(lat, lon)
-            else:
-                geohash = None
-            
-            requests.post(url, headers=headers, json={
-                "product_name": result.get('product_name', ''), 
-                "brand": result.get('brand', ''),
-                "score": result.get('score', 0), 
-                "verdict": result.get('verdict', ''),
-                "city": location.get('city', ''), 
-                "country": location.get('country', ''), 
-                "user_id": user_id,
-                "lat": lat,
-                "lon": lon,
-                "geohash": geohash
-            }, timeout=5)
+            else: geohash = None
+            requests.post(url, headers=headers, json={"product_name": result.get('product_name', ''), "brand": result.get('brand', ''), "score": result.get('score', 0), "verdict": result.get('verdict', ''), "city": location.get('city', ''), "country": location.get('country', ''), "user_id": user_id, "lat": lat, "lon": lon, "geohash": geohash}, timeout=5)
         except: pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BARCODE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
-BASE32_DECODE = '0123456789bcdefghjkmnpqrstuvwxyz'
-
 def cache_barcode(barcode, data):
     try:
         conn = sqlite3.connect(LOCAL_DB)
         c = conn.cursor()
-        c.execute('INSERT OR REPLACE INTO barcode_cache (barcode, product_name, brand, ingredients, product_type, categories, nutrition, image_url, source, last_updated) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)', (barcode, data.get('name', ''), data.get('brand', ''), data.get('ingredients', ''), data.get('product_type', ''), data.get('categories', ''), json.dumps(data.get('nutrition', {})), data.get('image_url', ''), data.get('source', '')))
+        c.execute('INSERT OR REPLACE INTO barcode_cache (barcode, product_name, brand, ingredients, product_type, categories, nutrition, image_url, source, description, last_updated) VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)', (barcode, data.get('name', ''), data.get('brand', ''), data.get('ingredients', ''), data.get('product_type', ''), data.get('categories', ''), json.dumps(data.get('nutrition', {})), data.get('image_url', ''), data.get('source', ''), data.get('description', '')))
         conn.commit()
         conn.close()
     except: pass
@@ -671,11 +814,11 @@ def get_cached_barcode(barcode):
     try:
         conn = sqlite3.connect(LOCAL_DB)
         c = conn.cursor()
-        c.execute('SELECT product_name, brand, ingredients, product_type, categories, nutrition, image_url, source FROM barcode_cache WHERE barcode = ?', (barcode,))
+        c.execute('SELECT product_name, brand, ingredients, product_type, categories, nutrition, image_url, source, description FROM barcode_cache WHERE barcode = ?', (barcode,))
         r = c.fetchone()
         conn.close()
         if r and r[0]:
-            return {'found': True, 'name': r[0], 'brand': r[1], 'ingredients': r[2], 'product_type': r[3], 'categories': r[4], 'nutrition': json.loads(r[5]) if r[5] else {}, 'image_url': r[6], 'source': r[7], 'cached': True}
+            return {'found': True, 'name': r[0], 'brand': r[1], 'ingredients': r[2], 'product_type': r[3], 'categories': r[4], 'nutrition': json.loads(r[5]) if r[5] else {}, 'image_url': r[6], 'source': r[7], 'description': r[8] or '', 'cached': True}
     except: pass
     return None
 
@@ -705,23 +848,21 @@ def lookup_open_beauty_facts(barcode, progress_callback=None):
             if d.get('status') == 1:
                 p = d.get('product', {})
                 name = p.get('product_name') or p.get('product_name_en') or ''
-                if name:
-                    return {'found': True, 'name': name, 'brand': p.get('brands', ''), 'ingredients': p.get('ingredients_text') or p.get('ingredients_text_en') or '', 'categories': p.get('categories', ''), 'image_url': p.get('image_url', ''), 'product_type': 'cosmetics', 'source': 'Open Beauty Facts', 'confidence': 'high' if p.get('ingredients_text') else 'medium'}
+                if name: return {'found': True, 'name': name, 'brand': p.get('brands', ''), 'ingredients': p.get('ingredients_text') or p.get('ingredients_text_en') or '', 'categories': p.get('categories', ''), 'image_url': p.get('image_url', ''), 'product_type': 'cosmetics', 'source': 'Open Beauty Facts', 'confidence': 'high' if p.get('ingredients_text') else 'medium'}
     except: pass
     return None
 
 def lookup_open_library(barcode, progress_callback=None):
     if progress_callback: progress_callback(0.5, "📚 Searching Open Library...")
     try:
-        url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{barcode}&format=json&jscmd=data"
-        r = requests.get(url, timeout=12)
+        r = requests.get(f"https://openlibrary.org/api/books?bibkeys=ISBN:{barcode}&format=json&jscmd=data", timeout=12)
         if r.ok:
             d = r.json()
             key = f"ISBN:{barcode}"
             if key in d:
                 book = d[key]
                 authors = ', '.join([a.get('name', '') for a in book.get('authors', [])]) if book.get('authors') else ''
-                return {'found': True, 'name': book.get('title', ''), 'brand': authors, 'ingredients': '', 'categories': 'Books', 'product_type': 'book', 'source': 'Open Library', 'confidence': 'high', 'is_book': True, 'publishers': ', '.join([p.get('name', '') for p in book.get('publishers', [])]) if book.get('publishers') else '', 'publish_date': book.get('publish_date', ''), 'subjects': ', '.join([s.get('name', '') for s in book.get('subjects', [])[:5]]) if book.get('subjects') else '', 'cover': book.get('cover', {}).get('medium', ''), 'pages': book.get('number_of_pages', '')}
+                return {'found': True, 'name': book.get('title', ''), 'brand': authors, 'ingredients': '', 'categories': 'Books', 'product_type': 'book', 'source': 'Open Library', 'confidence': 'high', 'is_book': True, 'publishers': ', '.join([p.get('name', '') for p in book.get('publishers', [])]) if book.get('publishers') else '', 'publish_date': book.get('publish_date', ''), 'subjects': ', '.join([s.get('name', '') for s in book.get('subjects', [])[:5]]) if book.get('subjects') else '', 'pages': book.get('number_of_pages', '')}
     except: pass
     return None
 
@@ -763,12 +904,22 @@ def waterfall_barcode_search(barcode, progress_callback=None):
     
     result = lookup_open_food_facts(barcode, progress_callback)
     if result:
+        if progress_callback: progress_callback(0.8, "🔍 Searching for more info...")
+        # Try to get additional info from web
+        web_info = search_product_info_web(result.get('name', ''), result.get('brand', ''))
+        if web_info and web_info.get('description'):
+            result['description'] = web_info.get('description', '')
+            result['web_claims'] = web_info.get('marketing_claims', [])
+            result['web_warnings'] = web_info.get('warnings', [])
         if progress_callback: progress_callback(1.0, "✓ Found in Open Food Facts!")
         cache_barcode(barcode, result)
         return result
     
     result = lookup_open_beauty_facts(barcode, progress_callback)
     if result:
+        web_info = search_product_info_web(result.get('name', ''), result.get('brand', ''))
+        if web_info and web_info.get('description'):
+            result['description'] = web_info.get('description', '')
         if progress_callback: progress_callback(1.0, "✓ Found in Open Beauty Facts!")
         cache_barcode(barcode, result)
         return result
@@ -786,9 +937,7 @@ def preprocess_barcode_image(image):
     try:
         gray = image.convert('L')
         enhancer = ImageEnhance.Contrast(gray)
-        enhanced = enhancer.enhance(2.5)
-        sharpened = enhanced.filter(ImageFilter.SHARPEN)
-        return sharpened
+        return enhancer.enhance(2.5).filter(ImageFilter.SHARPEN)
     except: return image
 
 def try_decode_barcode_pyzbar(image_file):
@@ -832,13 +981,10 @@ def check_profile_notifications(ingredients, full_text, user_profiles, user_alle
         if profile_key not in HEALTH_PROFILES: continue
         profile = HEALTH_PROFILES[profile_key]
         if product_category not in profile.get('applies_to', []): continue
-        matched = False
         for flag in profile.get('ingredient_flags', []):
             if flag.lower() in ing_text:
-                matched = True
+                notifications.append({'type': 'profile', 'key': profile_key, 'name': profile['name'], 'icon': profile['icon'], 'message': profile.get('notification'), 'severity': 'warning'})
                 break
-        if matched:
-            notifications.append({'type': 'profile', 'key': profile_key, 'name': profile['name'], 'icon': profile['icon'], 'message': profile.get('notification', f"Contains flagged ingredients for {profile['name']}"), 'severity': 'warning'})
     
     for allergy_key in user_allergies:
         if allergy_key not in ALLERGENS: continue
@@ -852,65 +998,81 @@ def check_profile_notifications(ingredients, full_text, user_profiles, user_alle
     return notifications
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AI ANALYSIS - Enhanced with stricter scoring
+# AI ANALYSIS - WITH LOGIC GATES AND IMPLIED PROMISE
 # ═══════════════════════════════════════════════════════════════════════════════
-ANALYSIS_PROMPT = """You are HonestWorld's STRICT Marketing Integrity Analyzer. Your job is to EXPOSE misleading marketing.
+ANALYSIS_PROMPT = """You are HonestWorld's Marketing Integrity Analyzer with LOGIC GATES.
 
-## CRITICAL SCORING RULES - BE STRICT!
+## STEP 1: CATEGORY & CONTEXT IDENTIFICATION
+Before scoring, classify the product:
+1. **Category:** Food/Beverage, Cosmetic, Supplement, Electronics, Household
+2. **Subtype:** Be specific (e.g., shampoo, beverage, serum, candy, soup)
+3. **Implied Promise:** What is this product PRETENDING to be? Examples:
+   - "A healthy alternative" 
+   - "A premium/luxury item"
+   - "A natural/organic product"
+   - "A medical/clinical treatment"
+   - "Just an indulgent treat" (honest about being unhealthy)
 
-### Law 1: Water-Down Deception (-15 points)
-If #1 ingredient is WATER, AQUA, or cheap filler AND product has premium price/claims → ALWAYS apply -15 points!
-This is a MAJOR deception. Water costs nothing, charging premium for water-based product is dishonest.
+## STEP 2: APPLY LOGIC GATES (Critical!)
 
-### Law 5: Natural/Bio Fallacy (-12 points)  
-If product claims "natural", "bio", "organic", "pure" BUT:
-- No certification logo visible (USDA Organic, EU Organic, ACO, etc.)
-- Contains synthetic ingredients
-- Claim cannot be verified
-→ ALWAYS apply -12 points! These terms are often unregulated marketing buzzwords.
+### LAW 1 (Water-Down Deception) -15 pts
+- **APPLY IF:** Product is cream, serum, concentrate, premium paste, or claims premium price
+- **IGNORE IF:** Product is beverage, soup, toner, micellar water, shampoo, bodywash, cleanser (water is FUNCTIONALLY REQUIRED here)
 
-### Law 19: Fake Certification (-15 points)
-If product CLAIMS certification but no verifiable logo/number → apply -15 points
+### LAW 3 (Split Sugar Trick) -18 pts
+- **APPLY IF:** Product claims "healthy", "fitness", "natural", "low sugar", or targets health-conscious consumers
+- **IGNORE IF:** Product is openly candy, soda, dessert, chocolate, ice cream (consumer EXPECTS sugar)
+- **ONLY FLAG** if sugar is split into 3+ names to HIDE the total amount
 
-## SCORING BASELINE
-- Start at 85 points
-- DEDUCT for EVERY violation found
-- A product with water as #1 ingredient AND unverified "bio" claim should score around 58-65, NOT 85-90!
+### LAW 5 (Natural Fallacy) -12 pts
+- **STRICT MODE:** If packaging has green leaves, earth imagery, wood textures, "farm fresh" look, or words like "Pure/Raw/Natural/Bio/Organic" BUT:
+  - Contains synthetic ingredients, OR
+  - No official certification logo visible (USDA Organic, EU Organic, ACO, etc.)
+  → DEDUCT POINTS
 
-## BE SKEPTICAL
-- "Bio" without certification = marketing buzzword, NOT verified organic
-- Water as #1 ingredient in premium product = deception
-- "Natural" without proof = meaningless claim
-- Vegan ≠ healthy, just no animal products
+### LAWS 9, 10, 11, 12, 15, 16, 17 (Electronics Laws)
+- **APPLY ONLY** to Electronics category
+
+### LAW 19 (Fake Certification) -15 pts
+- **APPLY IF:** Claims "certified organic", "certified bio", etc. without official certification logo with ID number
+
+## STEP 3: SCORING (Base: 100)
+Start at 100, deduct for violations:
+- 90-100: EXCEPTIONAL (Gold standard, honest marketing)
+- 70-89: BUY (Good product, minor issues)
+- 40-69: CAUTION (Marketing fluff, some deception)
+- 0-39: AVOID (Deceptive/misleading)
 
 ## CONTEXT:
 Location: {location}
 {barcode_context}
+{web_context}
 
-## OUTPUT (Valid JSON only):
+## OUTPUT (Valid JSON):
 {{
-    "product_name": "Exact product name",
-    "brand": "Brand name",
-    "product_category": "CATEGORY_FOOD/CATEGORY_COSMETIC/CATEGORY_SUPPLEMENT/CATEGORY_ELECTRONICS/CATEGORY_HOUSEHOLD",
-    "product_type": "specific type (spread, butter, cleanser, etc.)",
+    "product_name": "Exact name",
+    "brand": "Brand",
+    "product_category": "CATEGORY_X",
+    "product_type": "specific subtype",
+    "implied_promise": "What the product is pretending to be",
     "readable": true,
     "score": <0-100>,
     "violations": [
-        {{"law": 1, "name": "Water-Down Deception", "points": -15, "evidence": "Water is #1 ingredient in premium-priced product"}}
+        {{"law": 1, "name": "Water-Down Deception", "points": -15, "evidence": "Evidence", "logic_gate": "Applied because product is premium cream, not a beverage"}}
     ],
     "bonuses": [{{"name": "Bonus", "points": <positive>, "evidence": "What earned it"}}],
-    "ingredients": ["list of all ingredients in order"],
-    "ingredients_flagged": [{{"name": "ingredient", "concern": "specific concern", "source": "Citation"}}],
-    "good_ingredients": ["beneficial ingredients"],
-    "main_issue": "Primary concern - be specific!",
-    "positive": "Main positive aspect",
-    "front_claims": ["ALL marketing claims on front: bio, natural, organic, etc."],
-    "fine_print": ["any warnings/disclaimers found"],
+    "ingredients": ["list in order"],
+    "ingredients_flagged": [{{"name": "ingredient", "concern": "concern", "source": "Citation"}}],
+    "good_ingredients": ["beneficial ones"],
+    "main_issue": "Primary concern",
+    "positive": "Main positive",
+    "front_claims": ["all marketing claims"],
+    "fine_print": ["warnings found"],
     "confidence": "high/medium/low",
-    "price_value": "poor/fair/good based on ingredients vs likely price"
+    "price_value": "poor/fair/good"
 }}
 
-CRITICAL: Be STRICT! Water-based "bio" products without certification should score 55-70, NOT 85+!"""
+CRITICAL: Apply Logic Gates! Don't penalize shampoo for having water or candy for having sugar."""
 
 def analyze_product(images, location, progress_callback, barcode_info=None, user_profiles=None, user_allergies=None):
     progress_callback(0.1, "Reading product...")
@@ -935,12 +1097,23 @@ BARCODE DATA:
 - Product: {barcode_info.get('name', '')}
 - Brand: {barcode_info.get('brand', '')}
 - Ingredients: {barcode_info.get('ingredients', '')[:1000]}
-- Source: {barcode_info.get('source', '')}
-Use this data if image is unclear."""
+- Description: {barcode_info.get('description', '')[:500]}
+- Source: {barcode_info.get('source', '')}"""
     
-    prompt = ANALYSIS_PROMPT.format(location=f"{location.get('city', '')}, {location.get('country', '')}", barcode_context=barcode_context)
+    web_context = ""
+    if barcode_info and barcode_info.get('web_claims'):
+        web_context = f"""
+WEB RESEARCH:
+- Marketing Claims Found: {', '.join(barcode_info.get('web_claims', [])[:5])}
+- Warnings Found: {', '.join(barcode_info.get('web_warnings', [])[:3])}"""
     
-    progress_callback(0.5, "Applying integrity laws...")
+    prompt = ANALYSIS_PROMPT.format(
+        location=f"{location.get('city', '')}, {location.get('country', '')}",
+        barcode_context=barcode_context,
+        web_context=web_context
+    )
+    
+    progress_callback(0.5, "Applying integrity laws with logic gates...")
     
     try:
         response = model.generate_content([prompt] + pil_images)
@@ -965,13 +1138,11 @@ Use this data if image is unclear."""
             score = int(re.sub(r'[^\d]', '', score) or '75')
         score = max(0, min(100, score))
         
-        # Verify violations match score deduction
         violations = result.get('violations', [])
         total_deduction = sum(abs(v.get('points', 0)) for v in violations)
-        expected_score = 85 - total_deduction
+        expected_score = 100 - total_deduction
         
-        # If AI score is much higher than expected, use the stricter score
-        if score > expected_score + 10:
+        if score > expected_score + 5:
             score = max(0, expected_score)
         
         product_name = result.get('product_name', '')
@@ -983,8 +1154,8 @@ Use this data if image is unclear."""
             if abs(score - old_score) > 5:
                 score = old_score
         
-        if not violations and score < 85:
-            missing = 85 - score
+        if not violations and score < 100:
+            missing = 100 - score
             violations = [{"law": None, "name": "Minor concerns", "points": -missing, "evidence": result.get('main_issue', 'Minor issues detected')}]
         
         result['score'] = score
@@ -1009,7 +1180,7 @@ Use this data if image is unclear."""
         return {"product_name": "Error", "score": 0, "verdict": "UNCLEAR", "readable": False, "violations": [], "main_issue": f"Error: {str(e)[:100]}"}
 
 def analyze_from_barcode_data(barcode_info, location, progress_callback, user_profiles=None, user_allergies=None):
-    """Analyze product using barcode database information"""
+    """Analyze product using barcode database information with Logic Gates"""
     if not GEMINI_API_KEY:
         return {"product_name": barcode_info.get('name', 'Unknown'), "score": 0, "verdict": "UNCLEAR", "readable": False, "violations": [], "main_issue": "Add GEMINI_API_KEY to secrets"}
     
@@ -1020,37 +1191,44 @@ def analyze_from_barcode_data(barcode_info, location, progress_callback, user_pr
     ingredients_text = barcode_info.get('ingredients', '')
     categories = barcode_info.get('categories', '')
     nutrition = barcode_info.get('nutrition', {})
+    description = barcode_info.get('description', '')
     
     if barcode_info.get('is_book'):
-        return {"product_name": product_name, "brand": brand, "product_category": "CATEGORY_BOOK", "product_type": "book", "readable": True, "score": 85, "verdict": "BUY", "violations": [], "bonuses": [{"name": "Book", "points": 0, "evidence": "Books are not rated for health concerns"}], "ingredients": [], "ingredients_flagged": [], "good_ingredients": [], "main_issue": "N/A - This is a book", "positive": f"Published: {barcode_info.get('publish_date', 'Unknown')}", "front_claims": [f"Pages: {barcode_info.get('pages', 'Unknown')}"], "fine_print": [f"Publisher: {barcode_info.get('publishers', 'Unknown')}"], "confidence": "high", "notifications": [], "is_book": True}
+        return {"product_name": product_name, "brand": brand, "product_category": "CATEGORY_BOOK", "product_type": "book", "implied_promise": "Educational/Entertainment content", "readable": True, "score": 85, "verdict": "BUY", "violations": [], "bonuses": [{"name": "Book", "points": 0, "evidence": "Books are not rated for marketing deception"}], "ingredients": [], "ingredients_flagged": [], "good_ingredients": [], "main_issue": "N/A - This is a book", "positive": f"Published: {barcode_info.get('publish_date', 'Unknown')}", "front_claims": [f"Pages: {barcode_info.get('pages', 'Unknown')}"], "fine_print": [f"Publisher: {barcode_info.get('publishers', 'Unknown')}"], "confidence": "high", "notifications": [], "is_book": True}
     
     nutrition_str = ""
     if nutrition:
         nutrition_items = [f"{k}: {v}" for k, v in list(nutrition.items())[:10] if v and not k.endswith('_unit')]
         nutrition_str = ', '.join(nutrition_items)
     
-    progress_callback(0.4, "Analyzing with AI...")
+    progress_callback(0.4, "Analyzing with Logic Gates...")
     
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.1, "max_output_tokens": 8192})
     
-    prompt = f"""Analyze this product STRICTLY using HonestWorld's Integrity Laws:
+    prompt = f"""Analyze this product using HonestWorld's Integrity Laws WITH LOGIC GATES:
 
 **Product:** {product_name}
 **Brand:** {brand}
 **Ingredients:** {ingredients_text if ingredients_text else 'Not available'}
 **Categories:** {categories}
+**Description:** {description[:500] if description else 'Not available'}
 **Nutrition:** {nutrition_str if nutrition_str else 'Not available'}
 
-CRITICAL SCORING:
-- If #1 ingredient is WATER and product claims premium/bio/natural → Law 1 (-15 points)
-- If "bio/natural/organic" claim without certification → Law 5 or 19 (-12 to -15 points)
-- Start at 85, deduct for violations
-- Water-based "bio" products should score 55-70, NOT 85+!
+APPLY LOGIC GATES:
+- Law 1 (Water): IGNORE if product is beverage/shampoo/cleanser/soup (water expected)
+- Law 3 (Sugar): IGNORE if product is candy/soda/dessert (sugar expected)
+- Law 5 (Natural): APPLY if claims natural/bio/organic without certification
+
+Determine:
+1. Product category and subtype
+2. Implied Promise (what is it pretending to be?)
+3. Apply violations WITH logic gate reasoning
+4. Score from 100 base
 
 Location: {location.get('city', '')}, {location.get('country', '')}
 
-Return valid JSON with violations and strict scoring."""
+Return valid JSON with implied_promise and logic_gate reasoning for each violation."""
     
     progress_callback(0.6, "Applying integrity laws...")
     
@@ -1071,8 +1249,8 @@ Return valid JSON with violations and strict scoring."""
         
         violations = result.get('violations', [])
         total_deduction = sum(abs(v.get('points', 0)) for v in violations)
-        expected_score = 85 - total_deduction
-        if score > expected_score + 10:
+        expected_score = 100 - total_deduction
+        if score > expected_score + 5:
             score = max(0, expected_score)
         
         result['score'] = score
@@ -1092,59 +1270,184 @@ Return valid JSON with violations and strict scoring."""
         return result
         
     except Exception as e:
-        return {"product_name": product_name, "brand": brand, "score": 65, "verdict": "CAUTION", "readable": True, "main_issue": "Limited data - verify claims", "positive": "Product found in database", "violations": [{"law": None, "name": "Unverified claims", "points": -20, "evidence": "Cannot verify marketing claims from database alone"}], "bonuses": [], "ingredients": ingredients_text.split(', ') if ingredients_text else [], "ingredients_flagged": [], "good_ingredients": [], "product_category": "CATEGORY_FOOD", "notifications": [], "front_claims": [], "fine_print": [], "confidence": "low"}
+        return {"product_name": product_name, "brand": brand, "score": 65, "verdict": "CAUTION", "readable": True, "main_issue": "Limited data - verify claims", "positive": "Product found in database", "implied_promise": "Unknown", "violations": [{"law": None, "name": "Unverified claims", "points": -35, "evidence": "Cannot verify marketing claims from database alone"}], "bonuses": [], "ingredients": ingredients_text.split(', ') if ingredients_text else [], "ingredients_flagged": [], "good_ingredients": [], "product_category": "CATEGORY_FOOD", "notifications": [], "front_claims": [], "fine_print": [], "confidence": "low"}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# IMAGE GENERATION
+# IMPROVED SHARE IMAGE GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════
-def create_share_image(product_name, brand, score, verdict):
+def create_share_image(product_name, brand, score, verdict, implied_promise=""):
+    """Create beautiful share image with app description"""
     width, height = 1080, 1080
-    colors = {'EXCEPTIONAL': ('#06b6d4', '#0891b2'), 'BUY': ('#22c55e', '#16a34a'), 'CAUTION': ('#f59e0b', '#d97706'), 'AVOID': ('#ef4444', '#dc2626'), 'UNCLEAR': ('#6b7280', '#4b5563')}
+    colors = {
+        'EXCEPTIONAL': ('#06b6d4', '#0891b2'),
+        'BUY': ('#22c55e', '#16a34a'),
+        'CAUTION': ('#f59e0b', '#d97706'),
+        'AVOID': ('#ef4444', '#dc2626'),
+        'UNCLEAR': ('#6b7280', '#4b5563')
+    }
     c1, c2 = colors.get(verdict, colors['CAUTION'])
+    
     img = Image.new('RGB', (width, height), c1)
     draw = ImageDraw.Draw(img)
-    for i in range(height // 2, height):
-        progress = (i - height // 2) / (height // 2)
-        r = int(int(c1[1:3], 16) + (int(c2[1:3], 16) - int(c1[1:3], 16)) * progress)
-        g = int(int(c1[3:5], 16) + (int(c2[3:5], 16) - int(c1[3:5], 16)) * progress)
-        b = int(int(c1[5:7], 16) + (int(c2[5:7], 16) - int(c1[5:7], 16)) * progress)
+    
+    # Gradient background
+    for i in range(height):
+        progress = i / height
+        r = int(int(c1[1:3], 16) * (1 - progress) + int(c2[1:3], 16) * progress)
+        g = int(int(c1[3:5], 16) * (1 - progress) + int(c2[3:5], 16) * progress)
+        b = int(int(c1[5:7], 16) * (1 - progress) + int(c2[5:7], 16) * progress)
         draw.line([(0, i), (width, i)], fill=(r, g, b))
+    
+    # Add subtle pattern overlay
+    for i in range(0, width, 40):
+        draw.line([(i, 0), (i + height, height)], fill=(255, 255, 255, 10), width=1)
+    
     try:
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 52)
-        font_score = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 140)
-        font_product = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 34)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
+        font_tagline = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+        font_score = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 160)
+        font_verdict = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
+        font_product = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_brand = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+        font_footer = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+        font_cta = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except:
-        font_title = font_score = font_product = ImageFont.load_default()
+        font_title = font_tagline = font_score = font_verdict = font_product = font_brand = font_footer = font_cta = ImageFont.load_default()
+    
     display = get_verdict_display(verdict)
-    draw.text((width // 2, 60), "HonestWorld", fill='white', anchor="mt", font=font_title)
-    draw.text((width // 2, 440), f"{score}/100", fill='white', anchor="mt", font=font_score)
-    pname = product_name[:38] + "..." if len(product_name) > 38 else product_name
-    draw.text((width // 2, 650), pname, fill='white', anchor="mt", font=font_product)
+    
+    # App name and tagline
+    draw.text((width // 2, 60), "🌍 HonestWorld", fill='white', anchor="mt", font=font_title)
+    draw.text((width // 2, 115), "See Through Marketing Lies", fill=(255, 255, 255, 200), anchor="mt", font=font_tagline)
+    
+    # Score circle background
+    circle_y = 320
+    circle_radius = 140
+    draw.ellipse([width//2 - circle_radius, circle_y - circle_radius, width//2 + circle_radius, circle_y + circle_radius], fill=(255, 255, 255, 40))
+    draw.ellipse([width//2 - circle_radius + 10, circle_y - circle_radius + 10, width//2 + circle_radius - 10, circle_y + circle_radius - 10], fill=(255, 255, 255, 60))
+    
+    # Score
+    draw.text((width // 2, circle_y - 20), str(score), fill='white', anchor="mm", font=font_score)
+    draw.text((width // 2, circle_y + 80), "/100", fill=(255, 255, 255, 200), anchor="mm", font=font_verdict)
+    
+    # Verdict
+    draw.text((width // 2, 520), display['text'], fill='white', anchor="mt", font=font_verdict)
+    
+    # Product name
+    pname = product_name[:35] + "..." if len(product_name) > 35 else product_name
+    draw.text((width // 2, 600), pname, fill='white', anchor="mt", font=font_product)
+    
+    # Brand
+    if brand:
+        bname = f"by {brand[:30]}"
+        draw.text((width // 2, 645), bname, fill=(255, 255, 255, 180), anchor="mt", font=font_brand)
+    
+    # Implied promise if available
+    if implied_promise:
+        ip_text = f'Claims to be: "{implied_promise[:40]}"'
+        draw.text((width // 2, 710), ip_text, fill=(255, 255, 255, 150), anchor="mt", font=font_tagline)
+    
+    # Divider line
+    draw.line([(100, 780), (width - 100, 780)], fill=(255, 255, 255, 100), width=2)
+    
+    # Call to action
+    draw.text((width // 2, 820), "🔍 Scan ANY product before you buy!", fill='white', anchor="mt", font=font_cta)
+    draw.text((width // 2, 860), "Expose hidden marketing tricks instantly", fill=(255, 255, 255, 180), anchor="mt", font=font_tagline)
+    
+    # Footer
+    draw.text((width // 2, 950), "Download HonestWorld • Free on iOS & Android", fill=(255, 255, 255, 150), anchor="mt", font=font_footer)
+    draw.text((width // 2, 1000), "#HonestWorld #SeeTheTruth", fill=(255, 255, 255, 120), anchor="mt", font=font_footer)
+    
     return img
 
-def create_story_image(product_name, brand, score, verdict):
+def create_story_image(product_name, brand, score, verdict, implied_promise=""):
+    """Create vertical story image with app description"""
     width, height = 1080, 1920
-    colors = {'EXCEPTIONAL': ('#06b6d4', '#0891b2'), 'BUY': ('#22c55e', '#16a34a'), 'CAUTION': ('#f59e0b', '#d97706'), 'AVOID': ('#ef4444', '#dc2626'), 'UNCLEAR': ('#6b7280', '#4b5563')}
+    colors = {
+        'EXCEPTIONAL': ('#06b6d4', '#0891b2'),
+        'BUY': ('#22c55e', '#16a34a'),
+        'CAUTION': ('#f59e0b', '#d97706'),
+        'AVOID': ('#ef4444', '#dc2626'),
+        'UNCLEAR': ('#6b7280', '#4b5563')
+    }
     c1, c2 = colors.get(verdict, colors['CAUTION'])
+    
     img = Image.new('RGB', (width, height), c1)
     draw = ImageDraw.Draw(img)
-    for i in range(height // 2, height):
-        progress = (i - height // 2) / (height // 2)
-        r = int(int(c1[1:3], 16) + (int(c2[1:3], 16) - int(c1[1:3], 16)) * progress)
-        g = int(int(c1[3:5], 16) + (int(c2[3:5], 16) - int(c1[3:5], 16)) * progress)
-        b = int(int(c1[5:7], 16) + (int(c2[5:7], 16) - int(c1[5:7], 16)) * progress)
+    
+    # Gradient background
+    for i in range(height):
+        progress = i / height
+        r = int(int(c1[1:3], 16) * (1 - progress * 0.7) + int(c2[1:3], 16) * progress * 0.7)
+        g = int(int(c1[3:5], 16) * (1 - progress * 0.7) + int(c2[3:5], 16) * progress * 0.7)
+        b = int(int(c1[5:7], 16) * (1 - progress * 0.7) + int(c2[5:7], 16) * progress * 0.7)
         draw.line([(0, i), (width, i)], fill=(r, g, b))
+    
     try:
-        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64)
-        font_score = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 200)
-        font_product = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 44)
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 56)
+        font_tagline = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
+        font_score = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 220)
+        font_verdict = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 44)
+        font_product = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 38)
+        font_brand = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
+        font_cta = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+        font_footer = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
     except:
-        font_title = font_score = font_product = ImageFont.load_default()
+        font_title = font_tagline = font_score = font_verdict = font_product = font_brand = font_cta = font_footer = ImageFont.load_default()
+    
     display = get_verdict_display(verdict)
-    draw.text((width // 2, 250), "HonestWorld", fill='white', anchor="mt", font=font_title)
-    draw.text((width // 2, 880), f"{score}/100", fill='white', anchor="mt", font=font_score)
-    pname = product_name[:34] + "..." if len(product_name) > 34 else product_name
-    draw.text((width // 2, 1200), pname, fill='white', anchor="mt", font=font_product)
+    
+    # Top section - App branding
+    draw.text((width // 2, 150), "🌍 HonestWorld", fill='white', anchor="mt", font=font_title)
+    draw.text((width // 2, 220), "See Through Marketing Lies", fill=(255, 255, 255, 200), anchor="mt", font=font_tagline)
+    
+    # Main score section
+    circle_y = 550
+    circle_radius = 180
+    draw.ellipse([width//2 - circle_radius, circle_y - circle_radius, width//2 + circle_radius, circle_y + circle_radius], fill=(255, 255, 255, 50))
+    
+    draw.text((width // 2, circle_y - 30), str(score), fill='white', anchor="mm", font=font_score)
+    draw.text((width // 2, circle_y + 100), "/100", fill=(255, 255, 255, 180), anchor="mm", font=font_verdict)
+    
+    # Verdict
+    draw.text((width // 2, 820), display['text'], fill='white', anchor="mt", font=font_verdict)
+    
+    # Product info
+    pname = product_name[:32] + "..." if len(product_name) > 32 else product_name
+    draw.text((width // 2, 920), pname, fill='white', anchor="mt", font=font_product)
+    if brand:
+        draw.text((width // 2, 975), f"by {brand[:28]}", fill=(255, 255, 255, 180), anchor="mt", font=font_brand)
+    
+    # Implied promise
+    if implied_promise:
+        draw.text((width // 2, 1060), f'Marketing claim: "{implied_promise[:35]}"', fill=(255, 255, 255, 150), anchor="mt", font=font_tagline)
+    
+    # Divider
+    draw.line([(100, 1150), (width - 100, 1150)], fill=(255, 255, 255, 80), width=2)
+    
+    # What is HonestWorld section
+    draw.text((width // 2, 1220), "What is HonestWorld?", fill='white', anchor="mt", font=font_cta)
+    
+    info_lines = [
+        "📸 Scan any product with your camera",
+        "🔍 AI analyzes marketing claims vs reality",
+        "⚖️ 20 Integrity Laws expose deception",
+        "✅ Get instant honest scores"
+    ]
+    
+    y_pos = 1290
+    for line in info_lines:
+        draw.text((width // 2, y_pos), line, fill=(255, 255, 255, 200), anchor="mt", font=font_tagline)
+        y_pos += 50
+    
+    # CTA
+    draw.text((width // 2, 1580), "🔥 Stop getting fooled by marketing!", fill='white', anchor="mt", font=font_cta)
+    draw.text((width // 2, 1640), "Download FREE • Scan before you buy", fill=(255, 255, 255, 180), anchor="mt", font=font_tagline)
+    
+    # Footer
+    draw.text((width // 2, 1780), "HonestWorld.app", fill=(255, 255, 255, 150), anchor="mt", font=font_footer)
+    draw.text((width // 2, 1830), "#HonestWorld #SeeTheTruth #MarketingExposed", fill=(255, 255, 255, 120), anchor="mt", font=font_footer)
+    
     return img
 
 def image_to_bytes(img, fmt='PNG'):
@@ -1153,7 +1456,7 @@ def image_to_bytes(img, fmt='PNG'):
     return buf.getvalue()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CSS STYLES - Complete with all features
+# CSS STYLES
 # ═══════════════════════════════════════════════════════════════════════════════
 CSS = """
 <style>
@@ -1185,9 +1488,12 @@ CSS = """
 .alert-issue { background: linear-gradient(135deg, #fef3c7, #fde68a); border-left: 4px solid #f59e0b; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
 .alert-positive { background: linear-gradient(135deg, #dcfce7, #bbf7d0); border-left: 4px solid #22c55e; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
 
+.implied-promise { background: linear-gradient(135deg, #e0e7ff, #c7d2fe); border-left: 4px solid #6366f1; padding: 0.9rem; border-radius: 0 12px 12px 0; margin: 0.5rem 0; }
+
 .law-box { background: white; border-left: 4px solid #ef4444; border-radius: 0 12px 12px 0; padding: 0.8rem; margin: 0.4rem 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .law-title { font-weight: 700; color: #dc2626; font-size: 0.95rem; }
 .law-evidence { font-size: 0.85rem; color: #64748b; margin-top: 0.3rem; }
+.law-gate { font-size: 0.75rem; color: #6366f1; font-style: italic; margin-top: 0.2rem; }
 
 .bonus-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-left: 4px solid #22c55e; padding: 0.6rem; border-radius: 0 10px 10px 0; margin: 0.3rem 0; }
 
@@ -1216,8 +1522,6 @@ CSS = """
 .contribute-box { background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2px dashed #f59e0b; border-radius: 16px; padding: 1.5rem; text-align: center; margin: 1rem 0; }
 .contribute-title { font-size: 1.2rem; font-weight: 700; color: #92400e; margin-bottom: 0.5rem; }
 
-.map-container { border-radius: 16px; overflow: hidden; margin: 1rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-
 #MainMenu, footer, header { visibility: hidden; }
 [data-testid="stCameraInput"] video { max-height: 180px !important; border-radius: 12px; }
 .stButton > button { background: linear-gradient(135deg, #3b82f6, #2563eb) !important; color: white !important; font-weight: 700 !important; border: none !important; border-radius: 12px !important; }
@@ -1240,7 +1544,6 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = None if key not in ['admin', 'show_result', 'contribute_mode'] else False
     
-    # Enhanced location detection
     if 'loc' not in st.session_state:
         saved = get_saved_location()
         if saved and saved.get('city') not in ['Unknown', '', 'Your City', None]:
@@ -1251,18 +1554,15 @@ def main():
             if detected.get('city') not in ['Unknown', 'Your City', ''] and not detected.get('needs_manual'):
                 save_location(detected['city'], detected['country'], detected.get('lat'), detected.get('lon'))
     
-    # Header with location
+    # Header
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown("# 🌍 HonestWorld")
         loc = st.session_state.loc
-        # Always show location
         if loc.get('city') and loc.get('city') not in ['Unknown', 'Your City', '']:
             location_text = f"📍 {loc.get('city')}"
-            if loc.get('region'):
-                location_text += f", {loc.get('region')}"
-            if loc.get('country'):
-                location_text += f", {loc.get('country')}"
+            if loc.get('region'): location_text += f", {loc.get('region')}"
+            if loc.get('country'): location_text += f", {loc.get('country')}"
             st.markdown(f"<span class='loc-badge'>{location_text}</span>", unsafe_allow_html=True)
         else:
             st.markdown("<span class='loc-badge'>📍 Set location in Profile</span>", unsafe_allow_html=True)
@@ -1271,14 +1571,12 @@ def main():
         if stats['streak'] > 0:
             st.markdown(f"<span class='streak-badge'>🔥 {stats['streak']}</span>", unsafe_allow_html=True)
     
-    # Stats
     st.markdown(f"""<div class='stat-row'>
         <div class='stat-box'><div class='stat-val'>{stats['scans']}</div><div class='stat-lbl'>Scans</div></div>
         <div class='stat-box'><div class='stat-val'>{stats['avoided']}</div><div class='stat-lbl'>Avoided</div></div>
         <div class='stat-box'><div class='stat-val'>{stats['best_streak']}</div><div class='stat-lbl'>Best Streak</div></div>
     </div>""", unsafe_allow_html=True)
     
-    # Tabs - Added World Map
     tab_scan, tab_history, tab_map, tab_profile, tab_laws = st.tabs(["📷 Scan", "📋 History", "🗺️ World Map", "👤 Profile", "⚖️ Laws"])
     
     with tab_scan:
@@ -1304,7 +1602,6 @@ def main():
     st.markdown(f"<center style='color:#94a3b8;font-size:0.7rem;margin-top:1rem;'>🌍 HonestWorld v{VERSION}</center>", unsafe_allow_html=True)
 
 def render_scan_interface(user_id):
-    """Main scan interface"""
     input_method = st.radio("", ["📷 Camera", "📁 Upload", "📊 Barcode"], horizontal=True, label_visibility="collapsed")
     images = []
     
@@ -1324,10 +1621,9 @@ def render_scan_interface(user_id):
             images = uploaded[:3]
             st.success(f"✅ {len(images)} image(s)")
     
-    else:  # Barcode
+    else:
         st.markdown("### 📊 Barcode Scanner")
-        st.caption("🔍 Waterfall search: Local → HonestWorld → Open Food Facts → Open Library → UPC Database")
-        
+        st.caption("🔍 Waterfall search + Web research for complete product info")
         barcode_img = st.camera_input("", label_visibility="collapsed", key="barcode_cam")
         
         if barcode_img:
@@ -1338,7 +1634,6 @@ def render_scan_interface(user_id):
             
             if barcode_num:
                 st.info(f"📊 Barcode: **{barcode_num}**")
-                
                 progress_container = st.empty()
                 def update_progress(pct, msg):
                     progress_container.markdown(f"<div class='progress-box'><div style='font-size:1.1rem;font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
@@ -1351,35 +1646,36 @@ def render_scan_interface(user_id):
                     if barcode_info.get('brand'):
                         st.caption(f"by {barcode_info.get('brand')} • Source: {barcode_info.get('source', '')}")
                     
+                    # Show description if available
+                    if barcode_info.get('description'):
+                        with st.expander("📝 Product Description"):
+                            st.write(barcode_info.get('description', '')[:500])
+                    
                     if barcode_info.get('ingredients'):
-                        with st.expander("📋 Ingredients from database"):
+                        with st.expander("📋 Ingredients"):
                             st.write(barcode_info.get('ingredients', '')[:500])
                     
                     st.session_state.barcode_info = barcode_info
                     st.session_state.barcode_only = True
                     images = [barcode_img]
                 else:
-                    st.markdown("""<div class='contribute-box'><div class='contribute-title'>🆕 Product Not Found!</div><p>This product isn't in our database yet.</p><p><strong>Help the community!</strong> Add it by scanning the front and back labels.</p></div>""", unsafe_allow_html=True)
-                    
+                    st.markdown("""<div class='contribute-box'><div class='contribute-title'>🆕 Product Not Found!</div><p>This product isn't in our database yet.</p><p><strong>Help the community!</strong> Add it by scanning the labels.</p></div>""", unsafe_allow_html=True)
                     if st.button("📸 Contribute This Product", use_container_width=True, type="primary"):
                         st.session_state.contribute_mode = True
                         st.session_state.contribute_barcode = barcode_num
                         st.rerun()
             else:
-                st.error("❌ Could not read barcode. Try again with better lighting.")
+                st.error("❌ Could not read barcode. Try better lighting.")
     
-    # Analyze button
     if images or st.session_state.get('barcode_info'):
         if st.button("🔍 ANALYZE", use_container_width=True, type="primary"):
             progress_ph = st.empty()
-            
             def update_prog(pct, msg):
                 icons = ['🔍', '📋', '⚖️', '✨']
                 icon = icons[min(int(pct * 4), 3)]
                 progress_ph.markdown(f"<div class='progress-box'><div style='font-size:2rem;'>{icon}</div><div style='font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
             
-            user_profiles = get_profiles()
-            user_allergies = get_allergies()
+            user_profiles, user_allergies = get_profiles(), get_allergies()
             bi = st.session_state.get('barcode_info')
             
             if st.session_state.get('barcode_only') and bi and bi.get('found'):
@@ -1415,12 +1711,10 @@ def render_scan_interface(user_id):
                 st.error("❌ Could not analyze. Try a clearer photo.")
 
 def render_contribute_interface(user_id):
-    """Interface for contributing new products"""
     st.markdown("### 🆕 Contribute New Product")
     barcode = st.session_state.get('contribute_barcode', '')
     st.info(f"📊 Barcode: **{barcode}**")
     
-    st.markdown("**Step 1:** Take photos of the product")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**Front Label:**")
@@ -1429,7 +1723,6 @@ def render_contribute_interface(user_id):
         st.markdown("**Back/Ingredients:**")
         back_img = st.camera_input("Back", label_visibility="collapsed", key="contrib_back")
     
-    st.markdown("**Step 2:** Product details (optional)")
     product_name = st.text_input("Product Name", placeholder="e.g., Chocolate Chip Cookies")
     brand = st.text_input("Brand", placeholder="e.g., Nabisco")
     
@@ -1450,12 +1743,9 @@ def render_contribute_interface(user_id):
             def update_prog(pct, msg):
                 progress_ph.markdown(f"<div class='progress-box'><div style='font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
             
-            update_prog(0.2, "Analyzing product...")
             result = analyze_product(images, st.session_state.loc, update_prog, None, get_profiles(), get_allergies())
-            
             if product_name: result['product_name'] = product_name
             if brand: result['brand'] = brand
-            
             progress_ph.empty()
             
             if result.get('readable', True) and result.get('score', 0) > 0:
@@ -1481,28 +1771,25 @@ def render_contribute_interface(user_id):
                 st.session_state.show_result = True
                 st.session_state.contribute_mode = False
                 st.session_state.contribute_barcode = None
-                
-                st.success("🎉 Thank you! Product added to HonestWorld database!")
+                st.success("🎉 Product added to HonestWorld database!")
                 st.rerun()
             else:
                 st.error("❌ Could not analyze. Try clearer photos.")
 
 def display_result(result, user_id):
-    """Display scan result with ALL share buttons"""
     score = result.get('score', 0)
     verdict = result.get('verdict', 'UNCLEAR')
     product_category = result.get('product_category', 'CATEGORY_FOOD')
     product_type = result.get('product_type', '')
+    implied_promise = result.get('implied_promise', '')
     display = get_verdict_display(verdict)
     
-    # Verdict card
     st.markdown(f"""<div class='verdict-card verdict-{verdict.lower()}'>
         <div class='verdict-icon'>{display['icon']}</div>
         <div class='verdict-text'>{display['text']}</div>
         <div class='verdict-score'>{score}<span style='font-size:1.5rem;'>/100</span></div>
     </div>""", unsafe_allow_html=True)
     
-    # Product info
     st.markdown(f"### {result.get('product_name', 'Unknown')}")
     if result.get('brand'):
         st.markdown(f"*by {result.get('brand')}*")
@@ -1510,39 +1797,36 @@ def display_result(result, user_id):
     cat_info = PRODUCT_CATEGORIES.get(product_category, {})
     st.markdown(f"<span class='cat-badge'>{cat_info.get('icon', '📦')} {cat_info.get('name', 'Product')}</span>", unsafe_allow_html=True)
     
+    # Implied Promise
+    if implied_promise:
+        st.markdown(f"<div class='implied-promise'>🎭 <strong>Marketing Promise:</strong> \"{implied_promise}\"</div>", unsafe_allow_html=True)
+    
     # Notifications
     for notif in result.get('notifications', []):
         css_class = 'notif-danger' if notif.get('severity') == 'danger' else 'notif-warning'
         st.markdown(f"""<div class='{css_class}'><strong>{notif.get('icon', '⚠️')} {notif.get('name', 'Alert')}</strong><br>{notif.get('message', '')}</div>""", unsafe_allow_html=True)
     
-    # Main issue
     main_issue = result.get('main_issue', '')
-    if main_issue and main_issue.lower() not in ['clean formula', 'none', '', 'n/a']:
+    if main_issue and main_issue.lower() not in ['clean formula', 'none', '', 'n/a', 'no major issues']:
         st.markdown(f"<div class='alert-issue'>⚠️ <strong>{main_issue}</strong></div>", unsafe_allow_html=True)
     
     if result.get('positive'):
         st.markdown(f"<div class='alert-positive'>✅ <strong>{result.get('positive')}</strong></div>", unsafe_allow_html=True)
     
-    # Price/Value indicator
+    # Price/Value
     if result.get('price_value'):
         pv = result.get('price_value', '').lower()
         pv_color = '#22c55e' if pv == 'good' else '#f59e0b' if pv == 'fair' else '#ef4444'
-        st.markdown(f"<div style='padding:0.5rem;background:#f1f5f9;border-radius:8px;margin:0.5rem 0;'><strong>💰 Value for Money:</strong> <span style='color:{pv_color};font-weight:700;'>{pv.upper()}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='padding:0.5rem;background:#f1f5f9;border-radius:8px;margin:0.5rem 0;'><strong>💰 Value:</strong> <span style='color:{pv_color};font-weight:700;'>{pv.upper()}</span></div>", unsafe_allow_html=True)
     
-    # Alternative - Location aware
+    # Alternative
     if not result.get('is_book'):
         country_code = st.session_state.loc.get('code', 'OTHER')
         alt = get_alternative(result.get('product_name', ''), product_type, product_category, country_code)
         alt_score_html = f"<span class='alt-score'>{alt['score']}/100</span>" if alt.get('score') else ''
-        
-        st.markdown(f"""<div class='alt-card'>
-            <strong>💚 {'Better Alternative' if verdict in ['CAUTION', 'AVOID'] else 'Similar Quality'}:</strong><br>
-            <span style='font-size:1.05rem;font-weight:600;'>{alt['name']}</span> {alt_score_html}<br>
-            <span style='color:#16a34a;'>{alt['why']}</span><br>
-            <div style='font-size:0.85rem;color:#64748b;margin-top:0.3rem;'>📍 Available at: {alt.get('retailer', 'Local stores')}</div>
-        </div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class='alt-card'><strong>💚 {'Better Alternative' if verdict in ['CAUTION', 'AVOID'] else 'Similar Quality'}:</strong><br><span style='font-size:1.05rem;font-weight:600;'>{alt['name']}</span> {alt_score_html}<br><span style='color:#16a34a;'>{alt['why']}</span><br><div style='font-size:0.85rem;color:#64748b;margin-top:0.3rem;'>📍 {alt.get('retailer', 'Local stores')}</div></div>""", unsafe_allow_html=True)
     
-    # Violations
+    # Violations with Logic Gate reasoning
     violations = result.get('violations', [])
     if violations:
         with st.expander(f"⚖️ Laws Violated ({len(violations)})", expanded=True):
@@ -1550,7 +1834,9 @@ def display_result(result, user_id):
                 law_num = v.get('law')
                 law_text = f"Law {law_num}: " if law_num else ""
                 evidence = str(v.get('evidence', '')).replace('<', '&lt;').replace('>', '&gt;')
-                st.markdown(f"""<div class='law-box'><div class='law-title'>{law_text}{v.get('name', 'Violation')} ({v.get('points', 0)} pts)</div><div class='law-evidence'>{evidence}</div></div>""", unsafe_allow_html=True)
+                logic_gate = v.get('logic_gate', '')
+                gate_html = f"<div class='law-gate'>🔀 Logic Gate: {logic_gate}</div>" if logic_gate else ""
+                st.markdown(f"""<div class='law-box'><div class='law-title'>{law_text}{v.get('name', 'Violation')} ({v.get('points', 0)} pts)</div><div class='law-evidence'>{evidence}</div>{gate_html}</div>""", unsafe_allow_html=True)
     
     # Bonuses
     bonuses = result.get('bonuses', [])
@@ -1585,15 +1871,14 @@ def display_result(result, user_id):
     # Front Claims
     front_claims = result.get('front_claims', [])
     if front_claims:
-        with st.expander("🏷️ Marketing Claims Analyzed", expanded=False):
+        with st.expander("🏷️ Marketing Claims", expanded=False):
             for claim in front_claims:
                 st.markdown(f"• {claim}")
     
-    # SHARE - ALL 6 SOCIAL MEDIA BUTTONS RESTORED
+    # Share
     st.markdown("### 📤 Share")
-    
-    share_img = create_share_image(result.get('product_name', ''), result.get('brand', ''), score, verdict)
-    story_img = create_story_image(result.get('product_name', ''), result.get('brand', ''), score, verdict)
+    share_img = create_share_image(result.get('product_name', ''), result.get('brand', ''), score, verdict, implied_promise)
+    story_img = create_story_image(result.get('product_name', ''), result.get('brand', ''), score, verdict, implied_promise)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -1601,8 +1886,7 @@ def display_result(result, user_id):
     with col2:
         st.download_button("📥 Story (1080×1920)", data=image_to_bytes(story_img), file_name=f"hw_story_{score}.png", mime="image/png", use_container_width=True)
     
-    # ALL 6 Social share links
-    share_text = urllib.parse.quote(f"Scanned {result.get('product_name', '')} with HonestWorld - {score}/100 ({verdict}) #HonestWorld")
+    share_text = urllib.parse.quote(f"🔍 Scanned {result.get('product_name', '')} with HonestWorld - {score}/100 ({verdict})! See through marketing lies. #HonestWorld #SeeTheTruth")
     
     st.markdown(f"""<div class='share-grid'>
         <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#1DA1F2;'><span>𝕏</span>Twitter</a>
@@ -1626,7 +1910,7 @@ def render_history(user_id):
     else:
         for item in history:
             score = item['score']
-            color = '#06b6d4' if score >= 90 else '#22c55e' if score >= 75 else '#f59e0b' if score >= 50 else '#ef4444'
+            color = '#06b6d4' if score >= 90 else '#22c55e' if score >= 70 else '#f59e0b' if score >= 40 else '#ef4444'
             fav = "⭐ " if item['favorite'] else ""
             col1, col2, col3 = st.columns([0.6, 3.4, 0.5])
             with col1:
@@ -1640,118 +1924,62 @@ def render_history(user_id):
                     st.rerun()
 
 def render_world_map():
-    """Render Global Live Map with Leaflet"""
     st.markdown("### 🗺️ Global Live Map")
     st.caption("See where products are being scanned around the world")
     
-    # Get user's location for centering
     loc = st.session_state.loc
-    center_lat = loc.get('lat', -27.5)  # Default to Brisbane area
+    center_lat = loc.get('lat', -27.5)
     center_lon = loc.get('lon', 153.0)
     
-    # Get local scan data
     local_data = get_map_data(500)
-    
-    # Get global data from Supabase
     global_data = supabase_get_global_scans(1000)
     
-    # Combine data
     all_points = []
     for d in local_data:
         if d.get('lat') and d.get('lon'):
             all_points.append({'lat': d['lat'], 'lon': d['lon'], 'score': d.get('score', 70), 'verdict': d.get('verdict', 'CAUTION'), 'product': d.get('product', ''), 'city': d.get('city', '')})
-    
     for d in global_data:
         if d.get('lat') and d.get('lon'):
             all_points.append({'lat': d['lat'], 'lon': d['lon'], 'score': d.get('score', 70), 'verdict': d.get('verdict', 'CAUTION'), 'product': d.get('product_name', ''), 'city': d.get('city', '')})
     
-    # Create Leaflet map HTML
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-    
     <div id="map" style="height: 400px; width: 100%; border-radius: 16px;"></div>
-    
     <script>
         var map = L.map('map').setView([{center_lat}, {center_lon}], 10);
-        
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-            attribution: '© OpenStreetMap contributors'
-        }}).addTo(map);
-        
-        // Add marker for user location
-        var userMarker = L.marker([{center_lat}, {center_lon}]).addTo(map);
-        userMarker.bindPopup("<b>📍 You are here</b><br>{loc.get('city', 'Unknown')}, {loc.get('country', '')}");
-        
-        // Heatmap data
-        var heatData = [
+        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{attribution: '© OpenStreetMap'}}).addTo(map);
+        var userMarker = L.marker([{center_lat}, {center_lon}]).addTo(map).bindPopup("<b>📍 You are here</b><br>{loc.get('city', 'Unknown')}");
+        var heatData = ["""
+    
+    heat_points = [f"[{p['lat']}, {p['lon']}, {0.8 if p.get('verdict') == 'AVOID' else 0.5}]" for p in all_points[:500] if p.get('lat') and p.get('lon')]
+    map_html += ','.join(heat_points)
+    
+    map_html += """];
+        if (heatData.length > 0) { L.heatLayer(heatData, {radius: 25, blur: 15, gradient: {0.4: 'blue', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}}).addTo(map); }
     """
     
-    # Add heat points
-    heat_points = []
-    for p in all_points[:500]:  # Limit for performance
-        intensity = 0.8 if p.get('verdict') == 'AVOID' else 0.5 if p.get('verdict') == 'CAUTION' else 0.3
-        heat_points.append(f"[{p['lat']}, {p['lon']}, {intensity}]")
+    for p in all_points[:50]:
+        if p.get('lat') and p.get('lon'):
+            color = '#ef4444' if p.get('verdict') == 'AVOID' else '#f59e0b' if p.get('verdict') == 'CAUTION' else '#22c55e'
+            product_safe = (p.get('product', 'Product')[:30] or 'Product').replace("'", "\\'").replace('"', '\\"')
+            p_score = p.get('score', '?')
+            map_html += f"L.circleMarker([{p['lat']}, {p['lon']}], {{radius: 6, fillColor: '{color}', color: '#fff', weight: 2, fillOpacity: 0.8}}).addTo(map).bindPopup('<b>{product_safe}</b><br>Score: {p_score}/100');"
     
-    map_html += ',\n'.join(heat_points)
-    
-    map_html += """
-        ];
-        
-        if (heatData.length > 0) {
-            var heat = L.heatLayer(heatData, {
-                radius: 25,
-                blur: 15,
-                maxZoom: 17,
-                gradient: {0.4: 'blue', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}
-            }).addTo(map);
-        }
-        
-        // Add individual markers for recent scans
-        var markers = [
-    """
-    
-    # Add markers for recent scans
-    marker_js = []
-    for p in all_points[:50]:  # Show last 50 as markers
-        color = '#ef4444' if p.get('verdict') == 'AVOID' else '#f59e0b' if p.get('verdict') == 'CAUTION' else '#22c55e'
-        product_safe = (p.get('product', 'Product')[:30] or 'Product').replace("'", "\\'").replace('"', '\\"')
-        marker_js.append(f"""
-            L.circleMarker([{p['lat']}, {p['lon']}], {{
-                radius: 6,
-                fillColor: '{color}',
-                color: '#fff',
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.8
-            }}).addTo(map).bindPopup("<b>{product_safe}</b><br>Score: {p.get('score', '?')}/100<br>{p.get('city', '')}");
-        """)
-    
-    map_html += '\n'.join(marker_js)
-    
-    map_html += """
-    </script>
-    """
-    
+    map_html += "</script>"
     st.components.v1.html(map_html, height=450)
     
-    # Stats
-    st.markdown(f"""
-    <div class='stat-row'>
+    st.markdown(f"""<div class='stat-row'>
         <div class='stat-box'><div class='stat-val'>{len(local_data)}</div><div class='stat-lbl'>Local Scans</div></div>
         <div class='stat-box'><div class='stat-val'>{len(global_data)}</div><div class='stat-lbl'>Global Scans</div></div>
         <div class='stat-box'><div class='stat-val'>{len(set(p.get('city', '') for p in all_points if p.get('city')))}</div><div class='stat-lbl'>Cities</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
 def render_profile():
     st.markdown("### ⚙️ Settings")
-    
     st.markdown("**📍 Location**")
     loc = st.session_state.loc
-    
-    # Show current detected location
     if loc.get('city') and loc.get('city') not in ['Unknown', '']:
         st.success(f"✅ Detected: {loc.get('city')}, {loc.get('region', '')} {loc.get('country', '')}")
     
@@ -1768,15 +1996,13 @@ def render_profile():
             st.success(f"✅ Location set to {city}, {country}")
             st.rerun()
     
-    if st.button("🔄 Auto-detect Location"):
+    if st.button("🔄 Auto-detect"):
         detected = detect_location_enhanced()
         if detected.get('city') not in ['Unknown', '']:
             st.session_state.loc = detected
             save_location(detected['city'], detected['country'], detected.get('lat'), detected.get('lon'))
             st.success(f"✅ Detected: {detected['city']}, {detected['country']}")
             st.rerun()
-        else:
-            st.warning("Could not detect location. Please enter manually.")
     
     st.markdown("---")
     st.markdown("**🏥 Health Profiles**")
@@ -1796,14 +2022,13 @@ def render_profile():
 
 def render_laws():
     st.markdown("### ⚖️ The 20 Integrity Laws")
-    st.caption("HonestWorld's evidence-based scoring system")
+    st.caption("With Logic Gates - context-aware enforcement")
     
     categories = {
         "🧪 Ingredients (1-6)": [1, 2, 3, 4, 5, 6],
         "📦 Packaging (7, 8, 18)": [7, 8, 18],
-        "📱 Electronics (9-12)": [9, 10, 11, 12],
+        "📱 Electronics (9-12, 15-17)": [9, 10, 11, 12, 15, 16, 17],
         "💄 Beauty/Health (13-14)": [13, 14],
-        "📋 Services (15-17)": [15, 16, 17],
         "🏷️ Claims (19-20)": [19, 20]
     }
     
@@ -1815,6 +2040,8 @@ def render_laws():
                     st.markdown(f"**Law {n}: {law['name']}** ({law['base_points']} pts)")
                     st.write(law['description'])
                     st.caption(f"💡 {law['tip']}")
+                    if law.get('logic_gate'):
+                        st.markdown(f"🔀 *Logic Gate: {law['logic_gate']}*")
                     st.markdown("---")
 
 if __name__ == "__main__":
