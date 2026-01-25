@@ -1140,8 +1140,9 @@ STEP 3: CHECK ALL 21 INTEGRITY LAWS (Apply ALL that are relevant!)
 - CHECK: "Certified organic" but no cert logo?
 
 **LAW 20: Name Implication (-10 pts)**
-- APPLY IF: Product name implies ingredient that's barely present
-- CHECK: "Honey Oat Bar" but honey is #8 ingredient?
+- APPLY IF: Product name implies a SPECIFIC ADDED INGREDIENT that's barely present (e.g., "Honey Shampoo", "Aloe Wash", "Cocoa Butter Cream" but that ingredient is below #5)
+- IGNORE IF: The name simply describes the PRODUCT CATEGORY or FUNCTION (e.g., "Cleanser", "Cream", "Lotion", "Gel", "Wash", "Moisturizer", "Serum", "Butter", "Spread")
+- CHECK: "Honey Oat Bar" but honey is #8 ingredient? FLAG IT. "Gentle Cleanser" with no specific ingredient claim? IGNORE IT.
 
 ### VALUE LAW (21):
 
@@ -1238,7 +1239,7 @@ OUTPUT (Valid JSON)
     "price_value": "poor/fair/good"
 }}"""
 
-def analyze_product(images, location, progress_callback, barcode_info=None, user_profiles=None, user_allergies=None):
+def analyze_product(images, location, progress_callback, barcode_info=None, user_profiles=None, user_allergies=None, user_input_name=None, user_input_brand=None):
     progress_callback(0.1, "Reading product...")
     
     if not GEMINI_API_KEY:
@@ -1263,9 +1264,17 @@ BARCODE DATA:
 - Ingredients: {barcode_info.get('ingredients', '')[:1000]}
 - Source: {barcode_info.get('source', '')}"""
     
+    # Add user-provided context if available (for Contribute flow)
+    user_context = ""
+    if user_input_name or user_input_brand:
+        user_context = f"""
+USER PROVIDED CONTEXT:
+The user has identified this product as '{user_input_name or "Unknown"}' by '{user_input_brand or "Unknown"}'.
+Use this to help identify the product if the image is blurry or hard to read."""
+    
     prompt = ANALYSIS_PROMPT.format(
         location=f"{location.get('city', '')}, {location.get('country', '')}",
-        barcode_context=barcode_context
+        barcode_context=barcode_context + user_context
     )
     
     progress_callback(0.5, "Applying integrity laws...")
@@ -1331,7 +1340,7 @@ BARCODE DATA:
         return {"product_name": "Error", "score": 0, "verdict": "UNCLEAR", "readable": False, "violations": [], "main_issue": f"Error: {str(e)[:100]}"}
 
 def analyze_from_barcode_data(barcode_info, location, progress_callback, user_profiles=None, user_allergies=None):
-    """Analyze product using barcode database information"""
+    """Analyze product using barcode database information + product image vision"""
     if not GEMINI_API_KEY:
         return {"product_name": barcode_info.get('name', 'Unknown'), "score": 0, "verdict": "UNCLEAR", "readable": False, "violations": [], "main_issue": "Add GEMINI_API_KEY to secrets"}
     
@@ -1342,39 +1351,81 @@ def analyze_from_barcode_data(barcode_info, location, progress_callback, user_pr
     ingredients_text = barcode_info.get('ingredients', '')
     categories = barcode_info.get('categories', '')
     nutrition = barcode_info.get('nutrition', {})
+    image_url = barcode_info.get('image_url', '')
     
     if barcode_info.get('is_book'):
-        return {"product_name": product_name, "brand": brand, "product_category": "CATEGORY_BOOK", "product_type": "book", "readable": True, "score": 85, "verdict": "BUY", "violations": [], "bonuses": [], "ingredients": [], "main_issue": "N/A - This is a book", "positive": f"Published: {barcode_info.get('publish_date', 'Unknown')}", "notifications": [], "is_book": True}
+        return {"product_name": product_name, "brand": brand, "product_category": "CATEGORY_BOOK", "product_type": "book", "readable": True, "score": 85, "verdict": "BUY", "violations": [], "bonuses": [], "ingredients": [], "main_issue": "N/A - This is a book", "positive": f"Published: {barcode_info.get('publish_date', 'Unknown')}", "notifications": [], "is_book": True, "health_grade": None}
     
-    progress_callback(0.4, "Analyzing with Value Gap detection...")
+    progress_callback(0.3, "Checking for product image...")
+    
+    # Try to download product image for marketing claim detection
+    product_image = None
+    if image_url:
+        try:
+            img_response = requests.get(image_url, timeout=10)
+            if img_response.ok:
+                product_image = Image.open(BytesIO(img_response.content))
+                progress_callback(0.4, "Product image loaded for vision analysis...")
+        except:
+            pass  # Continue without image if download fails
+    
+    progress_callback(0.5, "Analyzing with all 21 Integrity Laws...")
     
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel("gemini-2.0-flash-exp", generation_config={"temperature": 0.1, "max_output_tokens": 8192})
     
-    prompt = f"""Analyze this product using HonestWorld's Value Gap Detection:
+    # Enhanced prompt using ANALYSIS_PROMPT style
+    prompt = f"""You are HonestWorld's Marketing Integrity Analyzer.
 
-**Product:** {product_name}
-**Brand:** {brand}
-**Ingredients:** {ingredients_text if ingredients_text else 'Not available'}
-**Categories:** {categories}
+Analyze this product using ALL 21 Integrity Laws:
 
-APPLY VALUE GAP DETECTION:
-1. What is the Implied Promise? (What is this claiming to be?)
-2. What is the Functional Expectation? (What SHOULD #1 ingredient be?)
-3. What is the Actual Reality? (What IS the #1 ingredient?)
-4. Is there a Value Discrepancy? (Premium claims + cheap filler?)
+**GROUND TRUTH DATA (from barcode database):**
+- Product: {product_name}
+- Brand: {brand}
+- Ingredients: {ingredients_text if ingredients_text else 'Not available'}
+- Categories: {categories}
 
-If value_discrepancy = TRUE → Cap score at 60
+{"**PRODUCT IMAGE ATTACHED:** Analyze the packaging for marketing claims (Bio, Premium, Natural, etc.) and compare against the ingredient reality." if product_image else ""}
 
-Use LEGAL-SAFE vocabulary only (no "scam", "fake", "lie", "avoid").
+**APPLY ALL RELEVANT LAWS:**
+- Law 1: Water-Down Deception (-15) - Premium product but #1 is water/filler?
+- Law 2: Fairy Dusting (-12) - Hero ingredient below position #5?
+- Law 3: Split Ingredient Trick (-18) - Same ingredient split 3+ ways?
+- Law 4: Low-Fat Trap (-10) - Low fat but high sugar?
+- Law 5: Natural Fallacy (-12) - Claims natural but has synthetics?
+- Law 6: Made-With Loophole (-8) - "Made with X" but X is minimal?
+- Law 7: Serving Size Trick (-10) - Unrealistic serving size?
+- Law 13: Unverified Clinical Claim (-12) - "Clinically proven" without study?
+- Law 14: Concentration Concern (-10) - Active too diluted?
+- Law 18: Photo Styling (-12) - Photo way better than reality?
+- Law 19: Unverified Certification (-15) - Claims cert without proof?
+- Law 20: Name Implication (-10) - Name implies ingredient barely present? (IGNORE if name just describes category like Cleanser/Cream)
+- Law 21: Value Discrepancy (-20) - Premium marketing + cheap filler? CAPS AT 60
+
+**VALUE GAP DETECTION:**
+1. Implied Promise: What is this CLAIMING to be?
+2. Functional Expectation: What SHOULD #1 ingredient be?
+3. Actual Reality: What IS the #1 ingredient?
+4. value_discrepancy = TRUE if premium claims + cheap filler → CAP AT 60
+
+**SPLIT INGREDIENT CHECK:**
+SUM these if found: sugar/glucose/fructose/dextrose/corn syrup/maltodextrin
+SUM these if found: palm oil/canola oil/soybean oil/vegetable oil
+If combined would be #1 → Trigger Law 3
+
 Location: {location.get('city', '')}, {location.get('country', '')}
 
-Return valid JSON."""
+Return valid JSON with: product_name, brand, product_category, product_type, implied_promise, functional_expectation, actual_reality, value_discrepancy, value_discrepancy_reason, split_ingredients_detected, readable, score (0-100), violations (array with law, name, points, evidence), bonuses, ingredients, ingredients_flagged (with name, concern, source, severity), good_ingredients, main_issue, positive, front_claims, confidence, price_value"""
     
-    progress_callback(0.6, "Applying integrity laws...")
+    progress_callback(0.7, "Applying integrity laws...")
     
     try:
-        response = model.generate_content(prompt)
+        # Use image if available for vision analysis
+        if product_image:
+            response = model.generate_content([prompt, product_image])
+        else:
+            response = model.generate_content(prompt)
+        
         text = response.text.strip()
         
         json_match = re.search(r'\{[\s\S]*\}', text)
@@ -1392,6 +1443,7 @@ Return valid JSON."""
         if result.get('value_discrepancy'):
             score = min(score, 60)
             result['score_capped'] = True
+            result['score_cap_reason'] = "Value Discrepancy detected"
         
         violations = result.get('violations', [])
         total_deduction = sum(abs(v.get('points', 0)) for v in violations)
@@ -1408,13 +1460,16 @@ Return valid JSON."""
         result['brand'] = brand
         result['readable'] = True
         
-        # Calculate health grade for food
-        if nutrition:
+        # ALWAYS calculate health grade for food if nutrition data available
+        product_category = result.get('product_category', 'CATEGORY_FOOD')
+        if nutrition and product_category in ['CATEGORY_FOOD', 'CATEGORY_SUPPLEMENT']:
             health_grade, health_details = calculate_health_grade(nutrition)
             result['health_grade'] = health_grade
             result['health_grade_details'] = health_details
+        else:
+            result['health_grade'] = None
+            result['health_grade_details'] = None
         
-        product_category = result.get('product_category', 'CATEGORY_FOOD')
         ingredients = result.get('ingredients', [])
         full_text = ' '.join(result.get('fine_print', []) + result.get('front_claims', []))
         
@@ -1425,7 +1480,11 @@ Return valid JSON."""
         return result
         
     except Exception as e:
-        return {"product_name": product_name, "brand": brand, "score": 65, "verdict": "CAUTION", "readable": True, "main_issue": "Limited data - verify claims", "violations": [], "bonuses": [], "ingredients": [], "notifications": [], "confidence": "low"}
+        # Fallback with health grade
+        health_grade = None
+        if nutrition:
+            health_grade, _ = calculate_health_grade(nutrition)
+        return {"product_name": product_name, "brand": brand, "score": 65, "verdict": "CAUTION", "readable": True, "main_issue": "Limited data - verify claims", "violations": [], "bonuses": [], "ingredients": [], "notifications": [], "confidence": "low", "health_grade": health_grade}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # IMPROVED SHARE IMAGES - NO DOWNLOAD MESSAGING
@@ -1694,10 +1753,10 @@ CSS = """
 .alt-card { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #86efac; border-radius: 16px; padding: 1rem; margin: 0.75rem 0; }
 .alt-score { background: #22c55e; color: white; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem; }
 
-.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0.5rem 0; }
-.share-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.6rem; border-radius: 10px; color: white; text-decoration: none; font-weight: 600; font-size: 0.7rem; transition: transform 0.2s; }
-.share-btn:hover { transform: translateY(-2px); }
-.share-btn span { font-size: 1.2rem; margin-bottom: 0.2rem; }
+.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin: 0.75rem 0; }
+.share-btn { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.75rem 0.5rem; border-radius: 12px; color: white; text-decoration: none; font-weight: 700; font-size: 0.85rem; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.share-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.share-btn .icon { font-size: 1.1rem; font-weight: 900; }
 
 .progress-box { background: white; border-radius: 16px; padding: 1.5rem; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
 .progress-bar { height: 6px; background: #e2e8f0; border-radius: 3px; margin: 0.75rem 0; overflow: hidden; }
@@ -1925,7 +1984,18 @@ def render_contribute_interface(user_id):
             def update_prog(pct, msg):
                 progress_ph.markdown(f"<div class='progress-box'><div style='font-weight:600;'>{msg}</div><div class='progress-bar'><div class='progress-fill' style='width:{pct*100}%'></div></div></div>", unsafe_allow_html=True)
             
-            result = analyze_product(images, st.session_state.loc, update_prog, None, get_profiles(), get_allergies())
+            # Pass user-provided name and brand to help AI identify blurry images
+            result = analyze_product(
+                images, 
+                st.session_state.loc, 
+                update_prog, 
+                None,  # barcode_info
+                get_profiles(), 
+                get_allergies(),
+                user_input_name=product_name if product_name else None,
+                user_input_brand=brand if brand else None
+            )
+            # Still override with user input if provided (in case AI got it wrong)
             if product_name: result['product_name'] = product_name
             if brand: result['brand'] = brand
             progress_ph.empty()
@@ -2091,12 +2161,12 @@ def display_result(result, user_id):
     share_text = urllib.parse.quote(f"🔍 Scanned {result.get('product_name', '')} with HonestWorld - {score}/100 ({verdict})! See through marketing claims. #HonestWorld #SeeTheTruth")
     
     st.markdown(f"""<div class='share-grid'>
-        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#1DA1F2;'><span>𝕏</span>Twitter</a>
-        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#4267B2;'><span>f</span>Facebook</a>
-        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'><span>💬</span>WhatsApp</a>
-        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'><span>✈️</span>Telegram</a>
-        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);'><span>📷</span>Instagram</a>
-        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#000;'><span>♪</span>TikTok</a>
+        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#000000;'><span class='icon'>X</span>Twitter</a>
+        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#1877F2;'><span class='icon'>f</span>Facebook</a>
+        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'><span class='icon'>W</span>WhatsApp</a>
+        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'><span class='icon'>T</span>Telegram</a>
+        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);'><span class='icon'>IG</span>Instagram</a>
+        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#000;'><span class='icon'>TT</span>TikTok</a>
     </div>""", unsafe_allow_html=True)
     
     if st.button("🔄 Scan Another", use_container_width=True):
