@@ -494,6 +494,52 @@ def get_verdict_display(verdict):
     }.get(verdict, {'icon': '?', 'text': 'UNCLEAR', 'color': '#6b7280'})
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# INCI INGREDIENT NAME NORMALIZATION
+# ═══════════════════════════════════════════════════════════════════════════════
+INCI_NORMALIZE = {
+    'aqua': 'Water',
+    'agua': 'Water',
+    'water/aqua': 'Water',
+    'aqua/water': 'Water',
+    'eau': 'Water',
+    'sodium chloride': 'Salt',
+    'saccharum': 'Sugar',
+    'sucrose': 'Sugar',
+    'glucose': 'Sugar',
+    'mel': 'Honey',
+    'olea europaea': 'Olive Oil',
+    'butyrospermum parkii': 'Shea Butter',
+    'tocopherol': 'Vitamin E',
+    'ascorbic acid': 'Vitamin C',
+    'retinol': 'Vitamin A',
+    'glycerin': 'Glycerin',
+    'glycerine': 'Glycerin',
+    'parfum': 'Fragrance',
+    'fragrance/parfum': 'Fragrance',
+}
+
+def normalize_ingredient(name):
+    """Normalize INCI ingredient names to common English names"""
+    if not name:
+        return name
+    name_lower = name.lower().strip()
+    return INCI_NORMALIZE.get(name_lower, name)
+
+def ingredients_match(expected, reality):
+    """Check if two ingredient names refer to the same thing"""
+    if not expected or not reality:
+        return False
+    exp_norm = normalize_ingredient(expected).lower()
+    real_norm = normalize_ingredient(reality).lower()
+    # Direct match
+    if exp_norm == real_norm:
+        return True
+    # One contains the other
+    if exp_norm in real_norm or real_norm in exp_norm:
+        return True
+    return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # HEALTH GRADE CALCULATION (Nutri-Score Style)
 # ═══════════════════════════════════════════════════════════════════════════════
 def calculate_health_grade(nutrition):
@@ -551,6 +597,64 @@ def calculate_health_grade(nutrition):
     
     details = f"Nutritional density score: {final_score}"
     return grade, details
+
+def calculate_cosmetic_safety(ingredients_flagged, good_ingredients, violations):
+    """Calculate safety rating for cosmetics (A-E scale like health grade)"""
+    # Start with base score
+    score = 0
+    
+    # Deduct for flagged ingredients
+    if ingredients_flagged:
+        for ing in ingredients_flagged:
+            severity = ing.get('severity', 'low')
+            if severity == 'high':
+                score += 8
+            elif severity == 'medium':
+                score += 4
+            else:
+                score += 2
+    
+    # Deduct for violations
+    score += len(violations) * 3
+    
+    # Add points for good ingredients
+    if good_ingredients:
+        score -= min(len(good_ingredients), 5) * 2  # Cap benefit at 5 good ingredients
+    
+    # Calculate grade
+    if score <= 0: grade = 'A'
+    elif score <= 5: grade = 'B'
+    elif score <= 10: grade = 'C'
+    elif score <= 15: grade = 'D'
+    else: grade = 'E'
+    
+    return grade
+
+def get_cosmetic_highlights(ingredients, ingredients_flagged):
+    """Extract key highlights for cosmetic products"""
+    highlights = []
+    ing_lower = ' '.join([i.lower() for i in (ingredients or [])])
+    
+    # Fragrance check
+    if 'parfum' not in ing_lower and 'fragrance' not in ing_lower and 'perfume' not in ing_lower:
+        highlights.append({'icon': '🌸', 'text': 'Fragrance-Free', 'positive': True})
+    else:
+        highlights.append({'icon': '🌺', 'text': 'Contains Fragrance', 'positive': False})
+    
+    # Paraben check
+    if 'paraben' not in ing_lower:
+        highlights.append({'icon': '✓', 'text': 'Paraben-Free', 'positive': True})
+    
+    # Alcohol check (drying alcohols)
+    drying_alcohols = ['alcohol denat', 'isopropyl alcohol', 'sd alcohol']
+    if not any(alc in ing_lower for alc in drying_alcohols):
+        highlights.append({'icon': '💧', 'text': 'No Drying Alcohols', 'positive': True})
+    
+    # Sulfate check
+    if 'sodium lauryl sulfate' not in ing_lower and 'sls' not in ing_lower:
+        highlights.append({'icon': '🧴', 'text': 'SLS-Free', 'positive': True})
+    
+    return highlights
 
 def get_health_grade_color(grade):
     return {'A': '#22c55e', 'B': '#84cc16', 'C': '#f59e0b', 'D': '#f97316', 'E': '#ef4444'}.get(grade, '#6b7280')
@@ -755,6 +859,7 @@ def supa_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
 
 def supabase_lookup_barcode(barcode):
+    """Look up product by barcode in Supabase products table"""
     if not supa_ok(): return None
     try:
         url = f"{SUPABASE_URL}/rest/v1/products?barcode=eq.{barcode}"
@@ -764,19 +869,62 @@ def supabase_lookup_barcode(barcode):
             data = r.json()
             if data and len(data) > 0:
                 p = data[0]
-                return {'found': True, 'name': p.get('product_name', ''), 'brand': p.get('brand', ''), 'ingredients': p.get('ingredients', ''), 'product_type': p.get('product_type', ''), 'categories': p.get('categories', ''), 'nutrition': p.get('nutrition', {}), 'image_url': p.get('image_url', ''), 'source': 'HonestWorld Community', 'confidence': 'high', 'crowdsourced': True}
-    except: pass
+                # Handle nutrition - might be JSON string or dict
+                nutrition = p.get('nutrition', {})
+                if isinstance(nutrition, str):
+                    try:
+                        nutrition = json.loads(nutrition)
+                    except:
+                        nutrition = {}
+                
+                return {
+                    'found': True, 
+                    'name': p.get('product_name', ''), 
+                    'brand': p.get('brand', ''), 
+                    'ingredients': p.get('ingredients', ''), 
+                    'product_type': p.get('product_type', ''), 
+                    'categories': p.get('categories', ''), 
+                    'nutrition': nutrition, 
+                    'image_url': p.get('image_url', ''), 
+                    'source': 'HonestWorld Community', 
+                    'confidence': 'high', 
+                    'crowdsourced': True
+                }
+    except Exception as e:
+        print(f"Supabase lookup error: {e}")
     return None
 
 def supabase_save_product(barcode, product_data, user_id):
+    """Save product to Supabase products table"""
     if not supa_ok(): return False
     try:
         url = f"{SUPABASE_URL}/rest/v1/products"
         headers = supa_headers()
-        payload = {"barcode": barcode, "product_name": product_data.get('name', ''), "brand": product_data.get('brand', ''), "ingredients": product_data.get('ingredients', ''), "product_type": product_data.get('product_type', ''), "categories": product_data.get('categories', ''), "nutrition": json.dumps(product_data.get('nutrition', {})), "contributed_by": user_id, "created_at": datetime.now().isoformat()}
+        
+        # Handle nutrition - could be dict or already JSON string
+        nutrition = product_data.get('nutrition', {})
+        if isinstance(nutrition, dict):
+            nutrition_json = json.dumps(nutrition)
+        else:
+            nutrition_json = nutrition if nutrition else '{}'
+        
+        payload = {
+            "barcode": barcode, 
+            "product_name": product_data.get('name', ''), 
+            "brand": product_data.get('brand', ''), 
+            "ingredients": product_data.get('ingredients', ''), 
+            "product_type": product_data.get('product_type', ''), 
+            "categories": product_data.get('categories', ''), 
+            "nutrition": nutrition_json,
+            "image_url": product_data.get('image_url', ''),
+            "contributed_by": user_id, 
+            "created_at": datetime.now().isoformat()
+        }
         r = requests.post(url, headers=headers, json=payload, timeout=10)
         return r.ok
-    except: return False
+    except Exception as e:
+        print(f"Supabase save error: {e}")
+        return False
 
 def supabase_get_global_scans(limit=1000):
     if not supa_ok(): return []
@@ -789,6 +937,7 @@ def supabase_get_global_scans(limit=1000):
     return []
 
 def cloud_log_scan(result, location, user_id):
+    """Log scan to Supabase scans_log table for global map and analytics"""
     if supa_ok():
         try:
             url = f"{SUPABASE_URL}/rest/v1/scans_log"
@@ -797,9 +946,29 @@ def cloud_log_scan(result, location, user_id):
             if lat and lon:
                 lat, lon = add_privacy_jitter(lat, lon)
                 geohash = encode_geohash(lat, lon)
-            else: geohash = None
-            requests.post(url, headers=headers, json={"product_name": result.get('product_name', ''), "brand": result.get('brand', ''), "score": result.get('score', 0), "verdict": result.get('verdict', ''), "city": location.get('city', ''), "country": location.get('country', ''), "user_id": user_id, "lat": lat, "lon": lon, "geohash": geohash}, timeout=5)
-        except: pass
+            else: 
+                geohash = None
+            
+            payload = {
+                "product_name": result.get('product_name', ''), 
+                "brand": result.get('brand', ''), 
+                "score": result.get('score', 0), 
+                "verdict": result.get('verdict', ''), 
+                "product_category": result.get('product_category', ''),
+                "health_grade": result.get('health_grade', ''),
+                "value_discrepancy": result.get('value_discrepancy', False),
+                "city": location.get('city', ''), 
+                "country": location.get('country', ''),
+                "country_code": location.get('code', ''),
+                "user_id": user_id, 
+                "lat": lat, 
+                "lon": lon, 
+                "geohash": geohash,
+                "created_at": datetime.now().isoformat()
+            }
+            requests.post(url, headers=headers, json=payload, timeout=5)
+        except Exception as e:
+            print(f"Cloud log error: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BARCODE FUNCTIONS
@@ -1753,10 +1922,10 @@ CSS = """
 .alt-card { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #86efac; border-radius: 16px; padding: 1rem; margin: 0.75rem 0; }
 .alt-score { background: #22c55e; color: white; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem; }
 
-.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; margin: 0.75rem 0; }
-.share-btn { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.75rem 0.5rem; border-radius: 12px; color: white; text-decoration: none; font-weight: 700; font-size: 0.85rem; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-.share-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
-.share-btn .icon { font-size: 1.1rem; font-weight: 900; }
+.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 1rem 0; }
+.share-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 8px; border-radius: 12px; color: white !important; text-decoration: none !important; font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.share-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.25); opacity: 0.95; }
+.share-btn .icon { font-size: 1.1rem; }
 
 .progress-box { background: white; border-radius: 16px; padding: 1.5rem; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
 .progress-bar { height: 6px; background: #e2e8f0; border-radius: 3px; margin: 0.75rem 0; overflow: hidden; }
@@ -2001,7 +2170,15 @@ def render_contribute_interface(user_id):
             progress_ph.empty()
             
             if result.get('readable', True) and result.get('score', 0) > 0:
-                product_data = {'name': result.get('product_name', ''), 'brand': result.get('brand', ''), 'ingredients': ', '.join(result.get('ingredients', [])), 'product_type': result.get('product_type', ''), 'categories': result.get('product_category', '')}
+                product_data = {
+                    'name': result.get('product_name', ''), 
+                    'brand': result.get('brand', ''), 
+                    'ingredients': ', '.join(result.get('ingredients', [])), 
+                    'product_type': result.get('product_type', ''), 
+                    'categories': result.get('product_category', ''),
+                    'nutrition': {},  # User contributed products typically don't have nutrition data
+                    'image_url': ''   # Could be added later if we support image uploads
+                }
                 supabase_save_product(barcode, product_data, user_id)
                 cache_barcode(barcode, product_data)
                 
@@ -2061,24 +2238,58 @@ def display_result(result, user_id):
         if result.get('brand'):
             st.markdown(f"*by {result.get('brand')}*")
     with col2:
-        if health_grade:
+        # Show appropriate badge based on category
+        if product_category == 'CATEGORY_COSMETIC':
+            # Calculate and show safety badge for cosmetics
+            safety_grade = calculate_cosmetic_safety(
+                result.get('ingredients_flagged', []),
+                result.get('good_ingredients', []),
+                result.get('violations', [])
+            )
+            grade_color = get_health_grade_color(safety_grade)
+            st.markdown(f"<div class='health-badge' style='background:{grade_color};'>{safety_grade}</div><div style='font-size:0.7rem;color:#64748b;text-align:center;'>Safety</div>", unsafe_allow_html=True)
+        elif health_grade:
+            # Show health grade for food
             grade_color = get_health_grade_color(health_grade)
             st.markdown(f"<div class='health-badge' style='background:{grade_color};'>{health_grade}</div><div style='font-size:0.7rem;color:#64748b;text-align:center;'>Health</div>", unsafe_allow_html=True)
     
     cat_info = PRODUCT_CATEGORIES.get(product_category, {})
     st.markdown(f"<span class='cat-badge'>{cat_info.get('icon', '📦')} {cat_info.get('name', 'Product')}</span>", unsafe_allow_html=True)
     
+    # Cosmetic-specific highlights (fragrance-free, paraben-free, etc.)
+    if product_category == 'CATEGORY_COSMETIC':
+        highlights = get_cosmetic_highlights(result.get('ingredients', []), result.get('ingredients_flagged', []))
+        if highlights:
+            highlight_html = " ".join([
+                f"<span style='display:inline-block;padding:0.2rem 0.5rem;margin:0.1rem;border-radius:12px;font-size:0.75rem;font-weight:500;background:{'#dcfce7' if h['positive'] else '#fef3c7'};color:{'#166534' if h['positive'] else '#92400e'};'>{h['icon']} {h['text']}</span>"
+                for h in highlights[:4]  # Show max 4 highlights
+            ])
+            st.markdown(f"<div style='margin:0.5rem 0;'>{highlight_html}</div>", unsafe_allow_html=True)
+    
     # Implied Promise
     if implied_promise:
         st.markdown(f"<div class='implied-promise'>🎭 <strong>Marketing Promise:</strong> \"{implied_promise}\"</div>", unsafe_allow_html=True)
     
-    # Functional expectation vs reality
-    if result.get('functional_expectation') and result.get('actual_reality'):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**Expected:** {result.get('functional_expectation')}")
-        with col2:
-            st.markdown(f"**Reality:** {result.get('actual_reality')}")
+    # Functional expectation vs reality (with INCI normalization)
+    func_exp = result.get('functional_expectation', '')
+    actual_real = result.get('actual_reality', '')
+    
+    if func_exp and actual_real:
+        # Normalize both values
+        exp_normalized = normalize_ingredient(func_exp)
+        real_normalized = normalize_ingredient(actual_real)
+        
+        # Check if they match (same ingredient, different names like Water/Aqua)
+        if ingredients_match(func_exp, actual_real):
+            # They match! Show positive confirmation
+            st.markdown(f"<div style='background:#dcfce7;padding:0.75rem 1rem;border-radius:10px;border-left:4px solid #22c55e;margin:0.5rem 0;'><strong>✅ Expectation Met:</strong> {exp_normalized} (formulated correctly)</div>", unsafe_allow_html=True)
+        else:
+            # They don't match - show the gap
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**Expected:** {exp_normalized}")
+            with col2:
+                st.markdown(f"**Reality:** {real_normalized}")
     
     # Notifications
     for notif in result.get('notifications', []):
@@ -2086,7 +2297,7 @@ def display_result(result, user_id):
         st.markdown(f"""<div class='{css_class}'><strong>{notif.get('icon', '⚠️')} {notif.get('name', 'Alert')}</strong><br>{notif.get('message', '')}</div>""", unsafe_allow_html=True)
     
     main_issue = result.get('main_issue', '')
-    if main_issue and main_issue.lower() not in ['clean formula', 'none', '', 'n/a', 'no major issues']:
+    if main_issue and main_issue.lower() not in ['clean formula', 'none', 'none detected', 'none detected.', '', 'n/a', 'no major issues', 'no issues', 'no issues detected', 'no concerns', 'clean', 'good']:
         st.markdown(f"<div class='alert-issue'>⚠️ <strong>{main_issue}</strong></div>", unsafe_allow_html=True)
     
     if result.get('positive'):
@@ -2161,12 +2372,12 @@ def display_result(result, user_id):
     share_text = urllib.parse.quote(f"🔍 Scanned {result.get('product_name', '')} with HonestWorld - {score}/100 ({verdict})! See through marketing claims. #HonestWorld #SeeTheTruth")
     
     st.markdown(f"""<div class='share-grid'>
-        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#000000;'><span class='icon'>X</span>Twitter</a>
-        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#1877F2;'><span class='icon'>f</span>Facebook</a>
-        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'><span class='icon'>W</span>WhatsApp</a>
-        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'><span class='icon'>T</span>Telegram</a>
-        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);'><span class='icon'>IG</span>Instagram</a>
-        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#000;'><span class='icon'>TT</span>TikTok</a>
+        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#000;'><span class='icon'>𝕏</span> Post</a>
+        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#1877F2;'><span class='icon'>f</span> Share</a>
+        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'><span class='icon'>✆</span> Send</a>
+        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'><span class='icon'>✈</span> Share</a>
+        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);'><span class='icon'>◐</span> Story</a>
+        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#010101;'><span class='icon'>♪</span> Video</a>
     </div>""", unsafe_allow_html=True)
     
     if st.button("🔄 Scan Another", use_container_width=True):
