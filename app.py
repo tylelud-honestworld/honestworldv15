@@ -1169,6 +1169,38 @@ Analyze products for marketing integrity - identifying gaps between PROMISES (ma
 You MUST check ALL 21 Integrity Laws that apply to this product category.
 
 ═══════════════════════════════════════════════════════════════════════════════
+🧠 MANDATORY: CHAIN OF THOUGHT REASONING (Do this FIRST!)
+═══════════════════════════════════════════════════════════════════════════════
+
+Before scoring, you MUST answer these questions in order:
+
+**Q1: What is the HERO CLAIM?**
+What is the PRIMARY selling point in the product name or packaging?
+Examples: "High Protein", "Probiotic", "Vitamin C", "Aloe", "Natural", "Organic"
+
+**Q2: What ingredient SHOULD support this claim?**
+- "High Protein" → Protein source should be #1 or #2
+- "Probiotic" → Probiotic strains should be prominent
+- "Vitamin C Serum" → Vitamin C / Ascorbic Acid should be high concentration
+- "Aloe Vera Gel" → Aloe should be #1
+- "Honey Shampoo" → Honey should be in top 5
+
+**Q3: WHERE is that ingredient in the actual list?**
+- Position #1-2: Claim is SUPPORTED ✓
+- Position #3-5: Claim is MARGINAL (potential Law 2 Fairy Dusting)
+- Position #6+: Claim is MISLEADING (definite Law 2 violation)
+
+**Q4: What IS the #1 ingredient? Is it appropriate?**
+Water/Aqua as #1 is APPROPRIATE for: shampoo, cleanser, toner, beverage, soup
+Water/Aqua as #1 is NOT APPROPRIATE for: "High Protein" products, spreads, serums, gels (aloe/vitamin), concentrates, puddings, snacks
+
+**Q5: SCORE CALCULATION - Show your math!**
+Start: 100
+- Law X: -Y points (reason)
+- Law Z: -W points (reason)
+= Final: XX
+
+═══════════════════════════════════════════════════════════════════════════════
 STEP 1: CATEGORY & CONTEXT IDENTIFICATION
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1177,10 +1209,12 @@ STEP 1: CATEGORY & CONTEXT IDENTIFICATION
 3. **Implied Promise:** What is this product CLAIMING to be?
 4. **Functional Expectation:** What SHOULD be the primary ingredient?
    - Butter/Spread → Fat/Cream/Oil
-   - Protein Powder → Protein
+   - Protein Powder/High Protein → Protein source
+   - Probiotic → Probiotic cultures
    - Aloe Gel → Aloe
    - Serum → Active ingredients
    - Beef Jerky → Meat
+   - Pudding claiming "High Protein" → Protein (NOT water)
 
 ═══════════════════════════════════════════════════════════════════════════════
 STEP 2: UNIVERSAL "VALUE GAP" ANALYSIS
@@ -1226,8 +1260,10 @@ STEP 3: CHECK ALL 21 INTEGRITY LAWS (Apply ALL that are relevant!)
 ### FOOD & COSMETIC LAWS (1-8):
 
 **LAW 1: Water-Down Deception (-15 pts)**
-- APPLY IF: Product is cream, serum, concentrate, spread, paste, balm where water is NOT the expected main ingredient
+- APPLY IF: Product is cream, serum, concentrate, spread, paste, balm, gel, pudding, protein product where water is NOT the expected main ingredient
+- APPLY IF: Product has a HERO CLAIM (High Protein, Probiotic, Aloe, etc.) but water is #1
 - IGNORE IF: beverage, soup, toner, shampoo, cleanser (water expected)
+- CRITICAL: "High Protein Pudding" with water #1 = VIOLATION (protein should be prominent)
 - CHECK: Is water/aqua the #1 ingredient when it shouldn't be?
 
 **LAW 2: Fairy Dusting (-12 pts)**
@@ -1345,21 +1381,31 @@ NEVER use → Use instead:
 - "Bad" → "Below Expectations"
 
 ═══════════════════════════════════════════════════════════════════════════════
-SCORING (Base: 100)
+SCORING (Base: 100) - BE STRICT!
 ═══════════════════════════════════════════════════════════════════════════════
 
-Start at 100, deduct for each violation found.
+Start at 100, deduct for EACH violation found.
 Apply ALL relevant laws - don't stop at just one violation!
+
+IMPORTANT SCORING RULES:
+- If HERO CLAIM ingredient is #3 or lower → At least -12 (Law 2)
+- If HERO CLAIM ingredient is #6 or lower → At least -22 (Law 2 + Law 1 or 21)
+- If product claims "High X" but X is NOT in top 2 → Consider value_discrepancy
+- Multiple violations should ADD UP, not be averaged
 
 Then apply caps:
 - If value_discrepancy = TRUE → Cap at 60
 - If unverified_certification = TRUE → Cap at 70
+- If hero_claim_missing = TRUE (claim not in top 5) → Cap at 75
 
 Verdicts:
 - 90-100: EXCEPTIONAL
 - 70-89: BUY
 - 40-69: CAUTION
 - 0-39: HIGH_CAUTION
+
+⚠️ A product with 2+ integrity violations should NOT score above 85!
+⚠️ A product with hero claim below position #5 should NOT score above 80!
 
 Context: Location: {location}
 {barcode_context}
@@ -1374,9 +1420,21 @@ OUTPUT (Valid JSON)
     "product_category": "CATEGORY_X",
     "product_type": "specific subtype",
     
+    "chain_of_thought": {{
+        "hero_claim": "What is the main selling point (High Protein, Probiotic, Natural, etc.)",
+        "expected_ingredient": "What ingredient should support this claim",
+        "actual_position": "Where is that ingredient in the list (#1, #3, #7, etc.)",
+        "ingredient_1": "What is actually #1 ingredient",
+        "is_appropriate": true/false,
+        "score_math": "100 - 15 (Law 1) - 12 (Law 2) = 73"
+    }},
+    
     "implied_promise": "What marketing claims",
     "functional_expectation": "What #1 ingredient SHOULD be",
     "actual_reality": "What #1 ingredient actually IS",
+    
+    "hero_claim_position": <number or null>,
+    "hero_claim_supported": true/false,
     
     "value_discrepancy": true/false,
     "value_discrepancy_reason": "Explanation if true",
@@ -1922,10 +1980,9 @@ CSS = """
 .alt-card { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #86efac; border-radius: 16px; padding: 1rem; margin: 0.75rem 0; }
 .alt-score { background: #22c55e; color: white; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; font-size: 0.8rem; }
 
-.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 1rem 0; }
-.share-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px 8px; border-radius: 12px; color: white !important; text-decoration: none !important; font-weight: 600; font-size: 0.85rem; transition: all 0.2s ease; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-.share-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.25); opacity: 0.95; }
-.share-btn .icon { font-size: 1.1rem; }
+.share-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0.75rem 0; }
+.share-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 8px; border-radius: 10px; color: #fff !important; text-decoration: none !important; font-weight: 600; font-size: 13px; transition: opacity 0.2s, transform 0.2s; }
+.share-btn:hover { opacity: 0.9; transform: scale(1.02); text-decoration: none !important; }
 
 .progress-box { background: white; border-radius: 16px; padding: 1.5rem; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
 .progress-bar { height: 6px; background: #e2e8f0; border-radius: 3px; margin: 0.75rem 0; overflow: hidden; }
@@ -2372,12 +2429,12 @@ def display_result(result, user_id):
     share_text = urllib.parse.quote(f"🔍 Scanned {result.get('product_name', '')} with HonestWorld - {score}/100 ({verdict})! See through marketing claims. #HonestWorld #SeeTheTruth")
     
     st.markdown(f"""<div class='share-grid'>
-        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#000;'><span class='icon'>𝕏</span> Post</a>
-        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#1877F2;'><span class='icon'>f</span> Share</a>
-        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'><span class='icon'>✆</span> Send</a>
-        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#0088cc;'><span class='icon'>✈</span> Share</a>
-        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);'><span class='icon'>◐</span> Story</a>
-        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#010101;'><span class='icon'>♪</span> Video</a>
+        <a href='https://twitter.com/intent/tweet?text={share_text}' target='_blank' class='share-btn' style='background:#000;'>X Post</a>
+        <a href='https://www.facebook.com/sharer/sharer.php?quote={share_text}' target='_blank' class='share-btn' style='background:#1877F2;'>Facebook</a>
+        <a href='https://wa.me/?text={share_text}' target='_blank' class='share-btn' style='background:#25D366;'>WhatsApp</a>
+        <a href='https://t.me/share/url?text={share_text}' target='_blank' class='share-btn' style='background:#229ED9;'>Telegram</a>
+        <a href='https://www.instagram.com/' target='_blank' class='share-btn' style='background:linear-gradient(45deg,#f09433,#dc2743,#bc1888);'>Instagram</a>
+        <a href='https://www.tiktok.com/' target='_blank' class='share-btn' style='background:#000;border:1px solid #333;'>TikTok</a>
     </div>""", unsafe_allow_html=True)
     
     if st.button("🔄 Scan Another", use_container_width=True):
@@ -2407,57 +2464,120 @@ def render_history(user_id):
                     st.rerun()
 
 def render_world_map():
-    st.markdown("### 🗺️ Global Live Map")
-    st.caption("See where products are being scanned around the world")
+    st.markdown("### 🗺️ Global Scan Activity")
+    st.caption("Real-time view of HonestWorld scans around the world")
     
     loc = st.session_state.loc
-    center_lat = loc.get('lat', -27.5)
-    center_lon = loc.get('lon', 153.0)
+    center_lat = loc.get('lat', -27.5) or -27.5
+    center_lon = loc.get('lon', 153.0) or 153.0
     
+    # Get local and global data
     local_data = get_map_data(500)
     global_data = supabase_get_global_scans(1000)
     
+    # Combine all points
     all_points = []
+    seen_coords = set()  # Avoid duplicates
+    
     for d in local_data:
         if d.get('lat') and d.get('lon'):
-            all_points.append({'lat': d['lat'], 'lon': d['lon'], 'score': d.get('score', 70), 'verdict': d.get('verdict', 'CAUTION'), 'product': d.get('product', ''), 'city': d.get('city', '')})
+            coord_key = f"{round(d['lat'], 3)},{round(d['lon'], 3)}"
+            if coord_key not in seen_coords:
+                seen_coords.add(coord_key)
+                all_points.append({'lat': d['lat'], 'lon': d['lon'], 'score': d.get('score', 70), 'verdict': d.get('verdict', 'CAUTION'), 'product': d.get('product', ''), 'city': d.get('city', '')})
+    
     for d in global_data:
         if d.get('lat') and d.get('lon'):
-            all_points.append({'lat': d['lat'], 'lon': d['lon'], 'score': d.get('score', 70), 'verdict': d.get('verdict', 'CAUTION'), 'product': d.get('product_name', ''), 'city': d.get('city', '')})
+            coord_key = f"{round(d['lat'], 3)},{round(d['lon'], 3)}"
+            if coord_key not in seen_coords:
+                seen_coords.add(coord_key)
+                all_points.append({'lat': d['lat'], 'lon': d['lon'], 'score': d.get('score', 70), 'verdict': d.get('verdict', 'CAUTION'), 'product': d.get('product_name', ''), 'city': d.get('city', '')})
+    
+    # Stats display
+    total_scans = len(local_data) + len(global_data)
+    unique_cities = len(set(p.get('city', '') for p in all_points if p.get('city')))
+    
+    # Stats row ABOVE map
+    st.markdown(f"""<div class='stat-row'>
+        <div class='stat-box'><div class='stat-val'>{len(local_data)}</div><div class='stat-lbl'>Your Scans</div></div>
+        <div class='stat-box'><div class='stat-val'>{len(global_data)}</div><div class='stat-lbl'>Global Scans</div></div>
+        <div class='stat-box'><div class='stat-val'>{unique_cities}</div><div class='stat-lbl'>Cities Active</div></div>
+    </div>""", unsafe_allow_html=True)
+    
+    # Determine zoom level based on data
+    zoom_level = 3 if len(all_points) > 10 else 10
     
     map_html = f"""
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-    <div id="map" style="height: 400px; width: 100%; border-radius: 16px;"></div>
+    <div id="map" style="height: 400px; width: 100%; border-radius: 16px; border: 2px solid #e2e8f0;"></div>
     <script>
-        var map = L.map('map').setView([{center_lat}, {center_lon}], 10);
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{attribution: '© OpenStreetMap'}}).addTo(map);
-        var userMarker = L.marker([{center_lat}, {center_lon}]).addTo(map).bindPopup("<b>📍 You are here</b><br>{loc.get('city', 'Unknown')}");
-        var heatData = ["""
+        setTimeout(function() {{
+            var map = L.map('map').setView([{center_lat}, {center_lon}], {zoom_level});
+            L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
+                attribution: '© OpenStreetMap © CARTO',
+                maxZoom: 19
+            }}).addTo(map);
+            
+            // User location marker
+            var userIcon = L.divIcon({{
+                className: 'user-marker',
+                html: '<div style="background:#3b82f6;width:20px;height:20px;border-radius:50%;border:3px solid white;box-shadow:0 2px 10px rgba(0,0,0,0.3);"></div>',
+                iconSize: [20, 20]
+            }});
+            L.marker([{center_lat}, {center_lon}], {{icon: userIcon}}).addTo(map).bindPopup("<b>📍 You are here</b><br>{loc.get('city', 'Your Location')}");
+            """
     
-    heat_points = [f"[{p['lat']}, {p['lon']}, {0.8 if p.get('verdict') == 'HIGH_CAUTION' else 0.5}]" for p in all_points[:500] if p.get('lat') and p.get('lon')]
-    map_html += ','.join(heat_points)
+    # Add heatmap if we have points
+    if all_points:
+        heat_points = [f"[{p['lat']}, {p['lon']}, {0.8 if p.get('verdict') == 'HIGH_CAUTION' else 0.5}]" for p in all_points[:500] if p.get('lat') and p.get('lon')]
+        map_html += f"""
+            var heatData = [{','.join(heat_points)}];
+            if (heatData.length > 0) {{ 
+                L.heatLayer(heatData, {{radius: 25, blur: 15, maxZoom: 10, gradient: {{0.2: '#22c55e', 0.4: '#84cc16', 0.6: '#f59e0b', 0.8: '#ef4444', 1: '#dc2626'}}}}).addTo(map); 
+            }}
+        """
+        
+        # Add individual markers for recent scans (max 30)
+        for p in all_points[:30]:
+            if p.get('lat') and p.get('lon'):
+                color = '#ef4444' if p.get('verdict') == 'HIGH_CAUTION' else '#f59e0b' if p.get('verdict') == 'CAUTION' else '#22c55e'
+                product_safe = (p.get('product', 'Product')[:25] or 'Product').replace("'", "\\'").replace('"', '\\"').replace('\n', ' ')
+                p_score = p.get('score', '?')
+                city_safe = (p.get('city', '')[:20] or '').replace("'", "\\'")
+                map_html += f"""
+                    L.circleMarker([{p['lat']}, {p['lon']}], {{
+                        radius: 8, 
+                        fillColor: '{color}', 
+                        color: '#fff', 
+                        weight: 2, 
+                        fillOpacity: 0.9
+                    }}).addTo(map).bindPopup('<div style="text-align:center;"><b>{product_safe}</b><br><span style="font-size:1.2em;color:{color};">{p_score}/100</span><br><small>{city_safe}</small></div>');
+                """
+    else:
+        # No data yet - show message
+        map_html += """
+            L.popup()
+                .setLatLng([{center_lat}, {center_lon}])
+                .setContent('<b>Be the first!</b><br>Start scanning products to see activity here.')
+                .openOn(map);
+        """.replace('{center_lat}', str(center_lat)).replace('{center_lon}', str(center_lon))
     
-    map_html += """];
-        if (heatData.length > 0) { L.heatLayer(heatData, {radius: 25, blur: 15, gradient: {0.4: 'blue', 0.6: 'lime', 0.8: 'yellow', 1: 'red'}}).addTo(map); }
+    map_html += """
+        }}, 100);
+    </script>
     """
     
-    for p in all_points[:50]:
-        if p.get('lat') and p.get('lon'):
-            color = '#ef4444' if p.get('verdict') == 'HIGH_CAUTION' else '#f59e0b' if p.get('verdict') == 'CAUTION' else '#22c55e'
-            product_safe = (p.get('product', 'Product')[:30] or 'Product').replace("'", "\\'").replace('"', '\\"')
-            p_score = p.get('score', '?')
-            map_html += f"L.circleMarker([{p['lat']}, {p['lon']}], {{radius: 6, fillColor: '{color}', color: '#fff', weight: 2, fillOpacity: 0.8}}).addTo(map).bindPopup('<b>{product_safe}</b><br>Score: {p_score}/100');"
-    
-    map_html += "</script>"
     st.components.v1.html(map_html, height=450)
     
-    st.markdown(f"""<div class='stat-row'>
-        <div class='stat-box'><div class='stat-val'>{len(local_data)}</div><div class='stat-lbl'>Local Scans</div></div>
-        <div class='stat-box'><div class='stat-val'>{len(global_data)}</div><div class='stat-lbl'>Global Scans</div></div>
-        <div class='stat-box'><div class='stat-val'>{len(set(p.get('city', '') for p in all_points if p.get('city')))}</div><div class='stat-lbl'>Cities</div></div>
-    </div>""", unsafe_allow_html=True)
+    # Recent activity feed
+    if all_points:
+        st.markdown("**📡 Recent Activity:**")
+        recent = all_points[:5]
+        for p in recent:
+            color = '#ef4444' if p.get('verdict') == 'HIGH_CAUTION' else '#f59e0b' if p.get('verdict') == 'CAUTION' else '#22c55e'
+            st.markdown(f"<div style='padding:0.3rem 0;border-bottom:1px solid #f1f5f9;'><span style='color:{color};font-weight:600;'>{p.get('score', '?')}/100</span> • {p.get('product', 'Product')[:30]} • <small style='color:#64748b;'>{p.get('city', '')}</small></div>", unsafe_allow_html=True)
 
 def render_profile():
     st.markdown("### ⚙️ Settings")
